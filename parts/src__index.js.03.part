@@ -4,8 +4,8 @@
   const glossaryRows = stmt(env, `SELECT term_id, MAX(term) term, COUNT(*) clicks, COUNT(DISTINCT installation_id) learners,
       SUM(CASE WHEN source='question' THEN 1 ELSE 0 END) question_clicks,
       SUM(CASE WHEN source='materials' THEN 1 ELSE 0 END) materials_clicks,
-      SUM(CASE WHEN received_at >= datetime('now','-7 days') THEN 1 ELSE 0 END) recent_7d,
-      SUM(CASE WHEN received_at >= datetime('now','-14 days') AND received_at < datetime('now','-7 days') THEN 1 ELSE 0 END) prior_7d,
+      SUM(CASE WHEN julianday(received_at) >= julianday('now','-7 days') THEN 1 ELSE 0 END) recent_7d,
+      SUM(CASE WHEN julianday(received_at) >= julianday('now','-14 days') AND julianday(received_at) < julianday('now','-7 days') THEN 1 ELSE 0 END) prior_7d,
       MIN(received_at) first_seen, MAX(received_at) last_seen
     FROM glossary_events ${where} GROUP BY term_id ORDER BY clicks DESC`, params).all();
   const glossaryRepeatRows = stmt(env, `SELECT term_id, COUNT(*) learners_with_clicks,
