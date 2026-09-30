@@ -2,23 +2,36 @@
   const incoming = Array.isArray(body?.events) ? body.events : [];
   if (!incoming.length || incoming.length > 50) return jsonResponse({ error: 'Send 1–50 events' }, { status: 400, headers: cors });
   let events;
-  try { events = incoming.map(normalizeEvent); } catch (err) { return jsonResponse({ error: err.message || 'Invalid event' }, { status: 400, headers: cors }); }
+  try { events = incoming.map(normalizeIncomingEvent); } catch (err) { return jsonResponse({ error: err.message || 'Invalid event' }, { status: 400, headers: cors }); }
 
   const cf = request.cf || {};
   const geo = {
     country: text(cf.country, 8), region: text(cf.region, 100), regionCode: text(cf.regionCode, 20), city: text(cf.city, 100),
     timezone: text(cf.timezone, 80), metroCode: text(cf.metroCode, 20), latitude: roundCoord(cf.latitude), longitude: roundCoord(cf.longitude)
   };
-  const sql = `INSERT OR IGNORE INTO events (
+  const answerSql = `INSERT OR IGNORE INTO events (
     client_event_id, installation_id, cohort, app_version, client_ts, question_id, category, mode, attempt_number, result, credit,
     selected_json, response_time_bucket, audio_used, glossary_used, country, region, region_code, city, timezone, metro_code, latitude_rounded, longitude_rounded
   ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
-  const statements = events.map(e => env.DB.prepare(sql).bind(
-    e.eventId, e.installationId, e.cohort, e.appVersion, e.clientTs, e.questionId, e.category, e.mode, e.attemptNumber, e.result, e.credit,
-    JSON.stringify(e.selected), e.bucket, e.audioUsed, e.glossaryUsed, geo.country, geo.region, geo.regionCode, geo.city, geo.timezone, geo.metroCode, geo.latitude, geo.longitude
-  ));
+  const glossarySql = `INSERT OR IGNORE INTO glossary_events (
+    client_event_id, installation_id, cohort, app_version, client_ts, term_id, term, source, question_id, category, mode,
+    country, region, region_code, city, timezone, metro_code, latitude_rounded, longitude_rounded
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+  const answers = events.filter(e => e.kind === 'answer');
+  const glossaryEvents = events.filter(e => e.kind === 'glossary');
+  if (glossaryEvents.length) await ensureGlossaryTable(env);
+  const statements = [
+    ...answers.map(e => env.DB.prepare(answerSql).bind(
+      e.eventId, e.installationId, e.cohort, e.appVersion, e.clientTs, e.questionId, e.category, e.mode, e.attemptNumber, e.result, e.credit,
+      JSON.stringify(e.selected), e.bucket, e.audioUsed, e.glossaryUsed, geo.country, geo.region, geo.regionCode, geo.city, geo.timezone, geo.metroCode, geo.latitude, geo.longitude
+    )),
+    ...glossaryEvents.map(e => env.DB.prepare(glossarySql).bind(
+      e.eventId, e.installationId, e.cohort, e.appVersion, e.clientTs, e.termId, e.term, e.source, e.questionId, e.category, e.mode,
+      geo.country, geo.region, geo.regionCode, geo.city, geo.timezone, geo.metroCode, geo.latitude, geo.longitude
+    ))
+  ];
   await env.DB.batch(statements);
-  return jsonResponse({ ok: true, accepted: events.length }, { headers: cors });
+  return jsonResponse({ ok: true, accepted: events.length, answers: answers.length, glossary: glossaryEvents.length }, { headers: cors });
 }
 
 async function dashboardOptions(env) {
