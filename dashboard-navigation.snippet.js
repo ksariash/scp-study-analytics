@@ -5,6 +5,7 @@ function enhanceDashboardHtml(html) {
     ["#heat-map", "Heat map"],
     ["#topics-review", "Topics"],
     ["#locations-review", "Locations"],
+    ["#glossary-attention", "Glossary"],
     ["#questions-diagnostics", "Questions"],
     ["#activity-over-time", "Activity"],
   ];
@@ -30,7 +31,7 @@ function enhanceDashboardHtml(html) {
 <style id="dashboardNavigationStyles">
 html{scroll-behavior:smooth}
 body[id="top"]{scroll-margin-top:0}
-#overview,#needs-review,#heat-map,#topics-review,#locations-review,#questions-diagnostics,#activity-over-time{scroll-margin-top:18px}
+#overview,#needs-review,#heat-map,#topics-review,#locations-review,#glossary-attention,#questions-diagnostics,#activity-over-time{scroll-margin-top:18px}
 .section-jump{display:flex;align-items:center;gap:9px;margin:0 0 12px;padding:8px 10px;background:#fff;border:1px solid var(--line);border-radius:13px;box-shadow:0 5px 16px rgba(24,41,75,.035);min-width:0}
 .section-jump-label{flex:0 0 auto;color:#708096;font-size:.64rem;font-weight:900;text-transform:uppercase;letter-spacing:.055em}
 .section-jump-links{display:flex;gap:6px;min-width:0;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;-webkit-overflow-scrolling:touch}
@@ -46,6 +47,15 @@ body[id="top"]{scroll-margin-top:0}
 .jump-fab:hover,.jump-fab:focus-visible,.back-top:hover,.back-top:focus-visible{background:#214994;outline:none}
 .jump-menu{position:fixed;z-index:31;left:max(14px,env(safe-area-inset-left));bottom:calc(max(16px,env(safe-area-inset-bottom)) + 50px);width:min(230px,calc(100vw - 28px));padding:8px;background:#fff;border:1px solid #dce5f1;border-radius:14px;box-shadow:0 18px 48px rgba(15,31,69,.24)}
 .foot{padding-bottom:84px}
+.glossary-term-id{display:block;margin-top:2px;color:#8995a8;font-size:.58rem;font-weight:650}
+.glossary-analytics-cards{display:none}
+.glossary-analytics-card{border:1px solid #e2e9f2;border-radius:12px;background:#fff;padding:10px}
+.glossary-analytics-card+.glossary-analytics-card{margin-top:8px}
+.glossary-analytics-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.glossary-analytics-top strong{font-size:.8rem;line-height:1.35}
+.glossary-analytics-top span{flex:0 0 auto;color:#3156a3;font-size:.68rem;font-weight:900}
+.glossary-recent{margin-top:8px;color:var(--muted);font-size:.65rem;font-weight:750}
+.glossary-note{margin-top:10px}
 .jump-menu-title{padding:5px 7px 7px;color:#748198;font-size:.61rem;font-weight:900;text-transform:uppercase;letter-spacing:.055em}
 .jump-menu a{display:block;padding:9px 10px;border-radius:9px}
 .jump-menu a:hover,.jump-menu a:focus-visible{background:#eef3fb;outline:none}
@@ -56,6 +66,8 @@ body[id="top"]{scroll-margin-top:0}
   .jump-fab,.back-top{height:40px}
   .back-top{width:40px}
   .foot{padding-bottom:76px}
+  .glossary-analytics-cards{display:block}
+  #glossaryAnalytics .desktop-table{display:none}
 }
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.scroll-control{transition:none}}
 </style>`;
@@ -111,6 +123,7 @@ body[id="top"]{scroll-margin-top:0}
     .replace('<h2>Topic heat map</h2>', '<h2 id="heat-map">Topic heat map</h2>')
     .replace('<h2>Topics needing review</h2>', '<h2 id="topics-review">Topics needing review</h2>')
     .replace('<h2>Where students are studying</h2>', '<h2 id="locations-review">Where students are studying</h2>')
+    .replace('<h2>Glossary term attention</h2>', '<h2 id="glossary-attention">Glossary term attention</h2>')
     .replace('<h2>Question diagnostics</h2>', '<h2 id="questions-diagnostics">Question diagnostics</h2>')
     .replace('<h2>Activity over time</h2>', '<h2 id="activity-over-time">Activity over time</h2>')
     .replace('<section class="overview" id="overview"></section>', inlineNav + '<section class="overview" id="overview"></section>')
