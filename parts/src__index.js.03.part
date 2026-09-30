@@ -1,5 +1,5 @@
     FROM events ${where} GROUP BY substr(received_at,1,10) ORDER BY day`, params).all();
-  const activityRows = stmt(env, `SELECT COALESCE(client_ts, received_at) ts, timezone, installation_id
+  const activityRows = stmt(env, `SELECT COALESCE(client_ts, received_at) ts, timezone, installation_id, attempt_number, result
     FROM events ${where} ORDER BY received_at`, params).all();
 
   const [overviewA, overviewB, topicA, topicB, questionA, questionB, selections, questionTimes, topicTimes, locationRows, timelineRows, activityRaw] = await Promise.all([
@@ -83,6 +83,7 @@
       answerCombos: (selectionMap.get(qid) || []).sort((a,b) => b.count - a.count)
     };
   });
+  const activity = localActivity(resultsOf(activityRaw));
   return jsonResponse({
     generatedAt: new Date().toISOString(),
     overview: {
@@ -95,8 +96,8 @@
       country:r.country, region:r.region, regionCode:r.region_code, city:r.city, learners:Number(r.learners)||0,
       submissions:Number(r.submissions)||0, firstAttempts:Number(r.first_attempts)||0, firstCorrect:Number(r.first_correct)||0
     })),
-    timeline: resultsOf(timelineRows).map(r => ({day:r.day,submissions:Number(r.submissions)||0,learners:Number(r.learners)||0,firstAttempts:Number(r.first_attempts)||0,firstCorrect:Number(r.first_correct)||0})),
-    activity: localActivity(resultsOf(activityRaw)),
+    timeline: activity.days,
+    activity,
     questionCatalog: QUESTION_CATALOG
   });
 }
