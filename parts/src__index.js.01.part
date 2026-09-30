@@ -78,47 +78,103 @@ function localActivity(rows) {
   const hourCounts = Array.from({ length: 24 }, (_, hour) => ({ hour, submissions: 0, learners: new Set() }));
   const weekdayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const weekdayCounts = new Map(weekdayNames.map(day => [day, { weekday: day, submissions: 0, learners: new Set() }]));
+  const dayCounts = new Map();
   const formatterCache = new Map();
+
   function formatter(timeZone) {
     const tz = timeZone || 'UTC';
     if (formatterCache.has(tz)) return formatterCache.get(tz);
     let f;
     try {
-      f = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', hour: '2-digit', hourCycle: 'h23' });
-      // Force validation now; invalid IANA zones throw only when formatting in some runtimes.
+      f = new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        weekday: 'short',
+        hour: '2-digit',
+        hourCycle: 'h23'
+      });
       f.format(new Date(0));
     } catch (_) {
-      f = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'short', hour: '2-digit', hourCycle: 'h23' });
+      f = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'UTC',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        weekday: 'short',
+        hour: '2-digit',
+        hourCycle: 'h23'
+      });
     }
     formatterCache.set(tz, f);
     return f;
   }
+
   for (const row of rows || []) {
     const d = new Date(row.ts);
     if (Number.isNaN(d.getTime())) continue;
+
     const parts = formatter(row.timezone).formatToParts(d);
-    const hourPart = parts.find(x => x.type === 'hour')?.value;
-    const weekday = parts.find(x => x.type === 'weekday')?.value;
+    const value = type => parts.find(x => x.type === type)?.value;
+    const year = value('year');
+    const month = value('month');
+    const day = value('day');
+    const hourPart = value('hour');
+    const weekday = value('weekday');
+
     let hour = Number(hourPart);
     if (!Number.isInteger(hour)) continue;
     if (hour === 24) hour = 0;
     hour = clamp(hour, 0, 23);
+
     const installationId = String(row.installation_id || '');
     const h = hourCounts[hour];
     h.submissions += 1;
     if (installationId) h.learners.add(installationId);
+
     const w = weekdayCounts.get(weekday) || weekdayCounts.get(weekdayNames[d.getUTCDay()]);
     if (w) {
       w.submissions += 1;
       if (installationId) w.learners.add(installationId);
     }
+
+    if (year && month && day) {
+      const localDay = `${year}-${month}-${day}`;
+      if (!dayCounts.has(localDay)) {
+        dayCounts.set(localDay, {
+          day: localDay,
+          submissions: 0,
+          learners: new Set(),
+          firstAttempts: 0,
+          firstCorrect: 0
+        });
+      }
+      const bucket = dayCounts.get(localDay);
+      bucket.submissions += 1;
+      if (installationId) bucket.learners.add(installationId);
+      if (Number(row.attempt_number) === 1) {
+        bucket.firstAttempts += 1;
+        if (row.result === 'correct') bucket.firstCorrect += 1;
+      }
+    }
   }
+
   return {
     hours: hourCounts.map(x => ({ hour: x.hour, submissions: x.submissions, learners: x.learners.size })),
     weekdays: weekdayNames.map(day => {
       const x = weekdayCounts.get(day);
       return { weekday: day, submissions: x.submissions, learners: x.learners.size };
-    })
+    }),
+    days: [...dayCounts.values()]
+      .sort((a, b) => a.day.localeCompare(b.day))
+      .map(x => ({
+        day: x.day,
+        submissions: x.submissions,
+        learners: x.learners.size,
+        firstAttempts: x.firstAttempts,
+        firstCorrect: x.firstCorrect
+      }))
   };
 }
 
