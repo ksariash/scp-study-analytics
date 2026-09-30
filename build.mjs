@@ -7,6 +7,8 @@ const targets = [
   ["src/question-catalog.js", "src__question-catalog.js"],
 ];
 
+const dashboardEnhancement = await readFile("dashboard-navigation.snippet.js", "utf8");
+
 await mkdir("src", { recursive: true });
 for (const [target, prefix] of targets) {
   const chunks = [];
@@ -16,6 +18,16 @@ for (const [target, prefix] of targets) {
     catch (error) { if (error?.code === "ENOENT") break; throw error; }
   }
   if (!chunks.length) throw new Error(`No source parts found for ${target}`);
-  await writeFile(target, chunks.join(""), "utf8");
+  let source = chunks.join("");
+  if (target === "src/dashboard.js") {
+    if (!source.startsWith("export const DASHBOARD_HTML = ")) {
+      throw new Error("Unexpected dashboard source format");
+    }
+    source = source.replace(
+      "export const DASHBOARD_HTML = ",
+      "const __DASHBOARD_BASE_HTML = ",
+    ) + "\n" + dashboardEnhancement;
+  }
+  await writeFile(target, source, "utf8");
 }
-console.log("Assembled Worker source files.");
+console.log("Assembled Worker source files with dashboard navigation enhancements.");
