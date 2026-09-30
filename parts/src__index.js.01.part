@@ -1,0 +1,155 @@
+import { DASHBOARD_HTML } from './dashboard.js';
+import { QUESTION_CATALOG } from './question-catalog.js';
+
+const QUESTION_MAP = new Map(QUESTION_CATALOG.map(q => [Number(q.id), q]));
+const RESPONSE_BUCKETS = new Set(['<10s', '10–29s', '30–59s', '1–2m', '2–5m', '5m+']);
+const MODES = new Set(['study', 'test']);
+const RESULTS = new Set(['correct', 'partial', 'incorrect']);
+const FILTER_FIELDS = new Map([
+  ['cohort', 'cohort'], ['country', 'country'], ['region', 'region'], ['city', 'city'], ['category', 'category'], ['mode', 'mode']
+]);
+
+function text(value, max = 120) {
+  if (value == null) return null;
+  const s = String(value).trim();
+  return s ? s.slice(0, max) : null;
+}
+
+function boolInt(value) { return value ? 1 : 0; }
+function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
+function roundCoord(value) {
+  const n = Number.parseFloat(value);
+  return Number.isFinite(n) ? Math.round(n * 10) / 10 : null;
+}
+function validIsoDate(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+function jsonResponse(data, init = {}) {
+  const headers = new Headers(init.headers || {});
+  headers.set('Content-Type', 'application/json; charset=utf-8');
+  headers.set('Cache-Control', 'no-store');
+  headers.set('X-Robots-Tag', 'noindex, nofollow');
+  return new Response(JSON.stringify(data), { ...init, headers });
+}
+function dashboardResponse() {
+  return new Response(DASHBOARD_HTML, {
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      'X-Robots-Tag': 'noindex, nofollow',
+      'Referrer-Policy': 'no-referrer',
+      'X-Content-Type-Options': 'nosniff'
+    }
+  });
+}
+function eventCors(request, env) {
+  const origin = request.headers.get('Origin');
+  const allowed = text(env.ALLOWED_ORIGIN, 300);
+  if (!origin || !allowed || origin !== allowed) return null;
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-SCP-Analytics-Version',
+    'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin'
+  };
+}
+function queryFilter(url) {
+  const clauses = [];
+  const params = [];
+  for (const [param, column] of FILTER_FIELDS) {
+    const value = text(url.searchParams.get(param), 160);
+    if (!value) continue;
+    clauses.push(`${column} = ?`);
+    params.push(value);
+  }
+  const from = text(url.searchParams.get('from'), 10);
+  const to = text(url.searchParams.get('to'), 10);
+  if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) { clauses.push('received_at >= ?'); params.push(`${from}T00:00:00.000Z`); }
+  if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) { clauses.push('received_at < ?'); const d = new Date(`${to}T00:00:00.000Z`); d.setUTCDate(d.getUTCDate()+1); params.push(d.toISOString()); }
+  return { where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', params };
+}
+function stmt(env, sql, params) { return env.DB.prepare(sql).bind(...params); }
+function resultsOf(r) { return r?.results || []; }
+
+function localActivity(rows) {
+  const hourCounts = Array.from({ length: 24 }, (_, hour) => ({ hour, submissions: 0, learners: new Set() }));
+  const weekdayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const weekdayCounts = new Map(weekdayNames.map(day => [day, { weekday: day, submissions: 0, learners: new Set() }]));
+  const formatterCache = new Map();
+  function formatter(timeZone) {
+    const tz = timeZone || 'UTC';
+    if (formatterCache.has(tz)) return formatterCache.get(tz);
+    let f;
+    try {
+      f = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', hour: '2-digit', hourCycle: 'h23' });
+      // Force validation now; invalid IANA zones throw only when formatting in some runtimes.
+      f.format(new Date(0));
+    } catch (_) {
+      f = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'short', hour: '2-digit', hourCycle: 'h23' });
+    }
+    formatterCache.set(tz, f);
+    return f;
+  }
+  for (const row of rows || []) {
+    const d = new Date(row.ts);
+    if (Number.isNaN(d.getTime())) continue;
+    const parts = formatter(row.timezone).formatToParts(d);
+    const hourPart = parts.find(x => x.type === 'hour')?.value;
+    const weekday = parts.find(x => x.type === 'weekday')?.value;
+    let hour = Number(hourPart);
+    if (!Number.isInteger(hour)) continue;
+    if (hour === 24) hour = 0;
+    hour = clamp(hour, 0, 23);
+    const installationId = String(row.installation_id || '');
+    const h = hourCounts[hour];
+    h.submissions += 1;
+    if (installationId) h.learners.add(installationId);
+    const w = weekdayCounts.get(weekday) || weekdayCounts.get(weekdayNames[d.getUTCDay()]);
+    if (w) {
+      w.submissions += 1;
+      if (installationId) w.learners.add(installationId);
+    }
+  }
+  return {
+    hours: hourCounts.map(x => ({ hour: x.hour, submissions: x.submissions, learners: x.learners.size })),
+    weekdays: weekdayNames.map(day => {
+      const x = weekdayCounts.get(day);
+      return { weekday: day, submissions: x.submissions, learners: x.learners.size };
+    })
+  };
+}
+
+function normalizeEvent(raw) {
+  if (!raw || typeof raw !== 'object') throw new Error('Invalid event');
+  const questionId = Number(raw.questionId);
+  const q = QUESTION_MAP.get(questionId);
+  if (!q) throw new Error('Unknown question');
+  const eventId = text(raw.eventId, 100);
+  const installationId = text(raw.installationId, 100);
+  const cohort = text(raw.cohort, 100);
+  const appVersion = text(raw.appVersion, 32);
+  const mode = text(raw.mode, 10);
+  const result = text(raw.result, 16);
+  const attemptNumber = Math.trunc(Number(raw.attemptNumber));
+  const bucket = text(raw.responseTimeBucket, 16);
+  if (!eventId || !installationId || !cohort || !MODES.has(mode) || !RESULTS.has(result) || !Number.isInteger(attemptNumber) || attemptNumber < 1 || attemptNumber > 10000 || !RESPONSE_BUCKETS.has(bucket)) throw new Error('Malformed event');
+  const validLetters = new Set(q.choices.map((_, i) => String.fromCharCode(65 + i)));
+  const selected = [...new Set((Array.isArray(raw.selected) ? raw.selected : []).map(x => String(x).toUpperCase()).filter(x => validLetters.has(x)))].sort();
+  if (!selected.length) throw new Error('Missing selection');
+  const credit = clamp(Number(raw.credit) || 0, 0, 1);
+  return {
+    eventId, installationId, cohort, appVersion, clientTs: validIsoDate(raw.clientTs), questionId,
+    category: q.category, mode, attemptNumber, result, credit, selected, bucket,
+    audioUsed: boolInt(raw.audioUsed), glossaryUsed: boolInt(raw.glossaryUsed)
+  };
+}
+
+async function ingestEvents(request, env) {
+  const cors = eventCors(request, env);
+  if (!cors) return jsonResponse({ error: 'Origin not allowed' }, { status: 403 });
+  const length = Number(request.headers.get('Content-Length') || 0);
+  if (length > 100000) return jsonResponse({ error: 'Payload too large' }, { status: 413, headers: cors });
+  let body;
