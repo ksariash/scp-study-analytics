@@ -1,0 +1,96 @@
+  try { body = await request.json(); } catch (_) { return jsonResponse({ error: 'Invalid JSON' }, { status: 400, headers: cors }); }
+  const incoming = Array.isArray(body?.events) ? body.events : [];
+  if (!incoming.length || incoming.length > 50) return jsonResponse({ error: 'Send 1–50 events' }, { status: 400, headers: cors });
+  let events;
+  try { events = incoming.map(normalizeEvent); } catch (err) { return jsonResponse({ error: err.message || 'Invalid event' }, { status: 400, headers: cors }); }
+
+  const cf = request.cf || {};
+  const geo = {
+    country: text(cf.country, 8), region: text(cf.region, 100), regionCode: text(cf.regionCode, 20), city: text(cf.city, 100),
+    timezone: text(cf.timezone, 80), metroCode: text(cf.metroCode, 20), latitude: roundCoord(cf.latitude), longitude: roundCoord(cf.longitude)
+  };
+  const sql = `INSERT OR IGNORE INTO events (
+    client_event_id, installation_id, cohort, app_version, client_ts, question_id, category, mode, attempt_number, result, credit,
+    selected_json, response_time_bucket, audio_used, glossary_used, country, region, region_code, city, timezone, metro_code, latitude_rounded, longitude_rounded
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+  const statements = events.map(e => env.DB.prepare(sql).bind(
+    e.eventId, e.installationId, e.cohort, e.appVersion, e.clientTs, e.questionId, e.category, e.mode, e.attemptNumber, e.result, e.credit,
+    JSON.stringify(e.selected), e.bucket, e.audioUsed, e.glossaryUsed, geo.country, geo.region, geo.regionCode, geo.city, geo.timezone, geo.metroCode, geo.latitude, geo.longitude
+  ));
+  await env.DB.batch(statements);
+  return jsonResponse({ ok: true, accepted: events.length }, { headers: cors });
+}
+
+async function dashboardOptions(env) {
+  const [cohorts, locations] = await Promise.all([
+    env.DB.prepare(`SELECT DISTINCT cohort FROM events WHERE cohort IS NOT NULL AND cohort != '' ORDER BY cohort DESC`).all(),
+    env.DB.prepare(`SELECT DISTINCT country, region, region_code, city FROM events WHERE country IS NOT NULL ORDER BY country, region, city`).all()
+  ]);
+  return jsonResponse({
+    cohorts: resultsOf(cohorts).map(x => x.cohort),
+    locations: resultsOf(locations),
+    categories: [...new Set(QUESTION_CATALOG.map(q => q.category))]
+  });
+}
+
+function combineRows(primary, secondary, key = 'category') {
+  const secondaryMap = new Map(secondary.map(r => [String(r[key]), r]));
+  return primary.map(row => ({ ...row, ...(secondaryMap.get(String(row[key])) || {}) }));
+}
+
+async function dashboardSummary(request, env) {
+  const url = new URL(request.url);
+  const { where, params } = queryFilter(url);
+  const baseOverview = stmt(env, `SELECT COUNT(*) submissions, COUNT(DISTINCT installation_id) learners,
+      SUM(CASE WHEN attempt_number = 1 THEN 1 ELSE 0 END) first_attempts,
+      SUM(CASE WHEN attempt_number = 1 AND result = 'correct' THEN 1 ELSE 0 END) first_correct,
+      SUM(audio_used) audio_used, SUM(glossary_used) glossary_used
+    FROM events ${where}`, params).first();
+  const pairOverview = stmt(env, `SELECT COUNT(*) pairs, SUM(any_correct) eventual_correct FROM (
+      SELECT installation_id, question_id, MAX(CASE WHEN result='correct' THEN 1 ELSE 0 END) any_correct
+      FROM events ${where} GROUP BY installation_id, question_id
+    )`, params).first();
+  const topicBasic = stmt(env, `SELECT category, COUNT(*) attempts, COUNT(DISTINCT installation_id) learners,
+      SUM(CASE WHEN attempt_number=1 THEN 1 ELSE 0 END) first_attempts,
+      SUM(CASE WHEN attempt_number=1 AND result='correct' THEN 1 ELSE 0 END) first_correct,
+      SUM(audio_used) audio_used, SUM(glossary_used) glossary_used
+    FROM events ${where} GROUP BY category`, params).all();
+  const topicPairs = stmt(env, `SELECT category, COUNT(*) pairs, SUM(any_correct) eventual_correct,
+      SUM(CASE WHEN had_first=1 AND first_correct=0 THEN 1 ELSE 0 END) first_missed,
+      SUM(CASE WHEN had_first=1 AND first_correct=0 AND any_correct=1 AND attempts>1 THEN 1 ELSE 0 END) recovered
+    FROM (
+      SELECT category, installation_id, question_id, COUNT(*) attempts,
+        MAX(CASE WHEN attempt_number=1 THEN 1 ELSE 0 END) had_first,
+        MAX(CASE WHEN attempt_number=1 AND result='correct' THEN 1 ELSE 0 END) first_correct,
+        MAX(CASE WHEN result='correct' THEN 1 ELSE 0 END) any_correct
+      FROM events ${where} GROUP BY category, installation_id, question_id
+    ) GROUP BY category`, params).all();
+  const questionBasic = stmt(env, `SELECT question_id, category, COUNT(*) attempts, COUNT(DISTINCT installation_id) learners,
+      SUM(CASE WHEN attempt_number=1 THEN 1 ELSE 0 END) first_attempts,
+      SUM(CASE WHEN attempt_number=1 AND result='correct' THEN 1 ELSE 0 END) first_correct,
+      SUM(audio_used) audio_used, SUM(glossary_used) glossary_used
+    FROM events ${where} GROUP BY question_id, category`, params).all();
+  const questionPairs = stmt(env, `SELECT question_id, COUNT(*) pairs, SUM(any_correct) eventual_correct,
+      SUM(CASE WHEN had_first=1 AND first_correct=0 THEN 1 ELSE 0 END) first_missed,
+      SUM(CASE WHEN had_first=1 AND first_correct=0 AND any_correct=1 AND attempts>1 THEN 1 ELSE 0 END) recovered
+    FROM (
+      SELECT question_id, installation_id, COUNT(*) attempts,
+        MAX(CASE WHEN attempt_number=1 THEN 1 ELSE 0 END) had_first,
+        MAX(CASE WHEN attempt_number=1 AND result='correct' THEN 1 ELSE 0 END) first_correct,
+        MAX(CASE WHEN result='correct' THEN 1 ELSE 0 END) any_correct
+      FROM events ${where} GROUP BY question_id, installation_id
+    ) GROUP BY question_id`, params).all();
+  const selectionRows = stmt(env, `SELECT question_id, selected_json, COUNT(*) n,
+      SUM(CASE WHEN attempt_number=1 THEN 1 ELSE 0 END) first_n
+    FROM events ${where} GROUP BY question_id, selected_json ORDER BY question_id, n DESC`, params).all();
+  const questionTimeRows = stmt(env, `SELECT question_id, response_time_bucket, COUNT(*) n
+    FROM events ${where} GROUP BY question_id, response_time_bucket ORDER BY question_id, n DESC`, params).all();
+  const topicTimeRows = stmt(env, `SELECT category, response_time_bucket, COUNT(*) n
+    FROM events ${where} GROUP BY category, response_time_bucket ORDER BY category, n DESC`, params).all();
+  const locations = stmt(env, `SELECT country, region, region_code, city, COUNT(DISTINCT installation_id) learners, COUNT(*) submissions,
+      SUM(CASE WHEN attempt_number=1 THEN 1 ELSE 0 END) first_attempts,
+      SUM(CASE WHEN attempt_number=1 AND result='correct' THEN 1 ELSE 0 END) first_correct
+    FROM events ${where} GROUP BY country, region, region_code, city ORDER BY learners DESC, submissions DESC LIMIT 200`, params).all();
+  const timeline = stmt(env, `SELECT substr(received_at,1,10) day, COUNT(*) submissions, COUNT(DISTINCT installation_id) learners,
+      SUM(CASE WHEN attempt_number=1 THEN 1 ELSE 0 END) first_attempts,
+      SUM(CASE WHEN attempt_number=1 AND result='correct' THEN 1 ELSE 0 END) first_correct
