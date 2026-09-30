@@ -1,0 +1,20 @@
+SCP STUDY ANALYTICS — METRIC NOTES
+==================================
+
+Unique learners
+A count of distinct anonymous installation IDs. This is an estimate: one student can use multiple devices, and multiple students can theoretically share one device.
+
+First-attempt accuracy
+Uses events whose local attempt_number is 1. This is the most useful indicator of initial understanding, but students who already answered a question before installing the analytics-enabled version may not contribute a first-attempt event for that question.
+
+Eventually correct
+For each anonymous learner + question pair with recorded data, asks whether at least one recorded attempt was correct.
+
+Recovered after miss
+Among learner-question pairs with a recorded first attempt that was not correct, the percentage that later recorded at least one correct attempt.
+
+Related audio / glossary use
+Recorded only as yes/no flags on the answer event. The system does not upload transcript text, glossary search terms, or detailed listening history.
+
+Location
+Derived by Cloudflare from request.cf when the event reaches the analytics Worker. It is approximate IP geolocation, not device GPS. Coordinates are rounded to one decimal place before storage. The dashboard is designed around city/region/country filtering rather than precise positioning.
