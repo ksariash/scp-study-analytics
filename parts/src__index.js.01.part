@@ -5,6 +5,7 @@ const QUESTION_MAP = new Map(QUESTION_CATALOG.map(q => [Number(q.id), q]));
 const RESPONSE_BUCKETS = new Set(['<10s', '10–29s', '30–59s', '1–2m', '2–5m', '5m+']);
 const MODES = new Set(['study', 'test']);
 const RESULTS = new Set(['correct', 'partial', 'incorrect']);
+const GLOSSARY_SOURCES = new Set(['question', 'materials', 'other']);
 const FILTER_FIELDS = new Map([
   ['cohort', 'cohort'], ['country', 'country'], ['region', 'region'], ['city', 'city'], ['category', 'category'], ['mode', 'mode']
 ]);
@@ -178,6 +179,41 @@ function localActivity(rows) {
   };
 }
 
+
+let glossaryTableReady = false;
+async function ensureGlossaryTable(env) {
+  if (glossaryTableReady) return;
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS glossary_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_event_id TEXT NOT NULL UNIQUE,
+    installation_id TEXT NOT NULL,
+    cohort TEXT NOT NULL,
+    app_version TEXT,
+    client_ts TEXT,
+    received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    term_id TEXT NOT NULL,
+    term TEXT NOT NULL,
+    source TEXT NOT NULL,
+    question_id INTEGER,
+    category TEXT,
+    mode TEXT NOT NULL CHECK (mode IN ('study','test')),
+    country TEXT,
+    region TEXT,
+    region_code TEXT,
+    city TEXT,
+    timezone TEXT,
+    metro_code TEXT,
+    latitude_rounded REAL,
+    longitude_rounded REAL
+  )`).run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_received_at ON glossary_events(received_at)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_cohort ON glossary_events(cohort)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_term ON glossary_events(term_id)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_location ON glossary_events(country, region, city)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_category ON glossary_events(category)').run();
+  glossaryTableReady = true;
+}
+
 function normalizeEvent(raw) {
   if (!raw || typeof raw !== 'object') throw new Error('Invalid event');
   const questionId = Number(raw.questionId);
@@ -201,6 +237,37 @@ function normalizeEvent(raw) {
     category: q.category, mode, attemptNumber, result, credit, selected, bucket,
     audioUsed: boolInt(raw.audioUsed), glossaryUsed: boolInt(raw.glossaryUsed)
   };
+}
+
+function normalizeGlossaryEvent(raw) {
+  if (!raw || typeof raw !== 'object') throw new Error('Invalid glossary event');
+  const eventId = text(raw.eventId, 100);
+  const installationId = text(raw.installationId, 100);
+  const cohort = text(raw.cohort, 100);
+  const appVersion = text(raw.appVersion, 32);
+  const mode = text(raw.mode, 10);
+  const sourceRaw = text(raw.source, 20) || 'other';
+  const source = GLOSSARY_SOURCES.has(sourceRaw) ? sourceRaw : 'other';
+  const termId = text(raw.termId, 80);
+  const term = text(raw.term, 140);
+  const rawQuestionId = Number(raw.questionId);
+  const q = Number.isInteger(rawQuestionId) ? QUESTION_MAP.get(rawQuestionId) : null;
+  if (!eventId || !installationId || !cohort || !MODES.has(mode) || !termId || !term || !/^[a-z0-9][a-z0-9-]{0,79}$/i.test(termId)) {
+    throw new Error('Malformed glossary event');
+  }
+  return {
+    kind: 'glossary',
+    eventId, installationId, cohort, appVersion,
+    clientTs: validIsoDate(raw.clientTs),
+    termId, term, source, mode,
+    questionId: q ? rawQuestionId : null,
+    category: q?.category || null
+  };
+}
+
+function normalizeIncomingEvent(raw) {
+  if (raw?.kind === 'glossary') return normalizeGlossaryEvent(raw);
+  return { kind: 'answer', ...normalizeEvent(raw) };
 }
 
 async function ingestEvents(request, env) {
