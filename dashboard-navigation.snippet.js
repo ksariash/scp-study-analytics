@@ -20,13 +20,11 @@ function enhanceDashboardHtml(html) {
     '</nav>';
 
   const floatingNav =
-    '<div class="dashboard-float-controls">' +
-      '<button id="jumpMenuButton" class="jump-fab scroll-control" type="button" aria-expanded="false" aria-controls="jumpMenu">Sections</button>' +
-      '<a id="backToTop" class="dashboard-top-fab scroll-control" href="#top" aria-label="Back to top" title="Back to top">↑ Top</a>' +
-    '</div>' +
+    '<button id="jumpMenuButton" class="jump-fab scroll-control" type="button" aria-expanded="false" aria-controls="jumpMenu">Sections</button>' +
     '<div id="jumpMenu" class="jump-menu" hidden>' +
       '<div class="jump-menu-title">Jump to</div>' + links +
-    '</div>';
+    '</div>' +
+    '<a id="backToTop" class="back-top scroll-control" href="#top" aria-label="Back to top" title="Back to top">↑</a>';
 
   const styles = `
 <style id="dashboardNavigationStyles">
@@ -42,12 +40,11 @@ body[id="top"]{scroll-margin-top:0}
 .section-jump a:hover,.section-jump a:focus-visible{background:#eaf0fb;outline:none}
 .scroll-control{opacity:0;pointer-events:none;transform:translateY(8px);transition:opacity .16s ease,transform .16s ease}
 .scroll-control.visible{opacity:1;pointer-events:auto;transform:translateY(0)}
-.dashboard-float-controls{position:fixed;z-index:30;right:max(14px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom));display:flex;gap:8px;align-items:center}
-.jump-fab,.dashboard-top-fab{position:relative;height:42px;border:1px solid rgba(255,255,255,.36);background:#173771;color:#fff;box-shadow:0 10px 28px rgba(15,37,82,.22);font-weight:850;cursor:pointer;border-radius:999px}
-.jump-fab{padding:0 14px;font-size:.72rem}
-.dashboard-top-fab{display:inline-flex;align-items:center;justify-content:center;padding:0 13px;text-decoration:none;font-size:.72rem;line-height:1;min-width:64px}
-.jump-fab:hover,.jump-fab:focus-visible,.dashboard-top-fab:hover,.dashboard-top-fab:focus-visible{background:#214994;outline:none}
-.jump-menu{position:fixed;z-index:31;right:max(14px,env(safe-area-inset-right));bottom:calc(max(16px,env(safe-area-inset-bottom)) + 50px);width:min(230px,calc(100vw - 28px));padding:8px;background:#fff;border:1px solid #dce5f1;border-radius:14px;box-shadow:0 18px 48px rgba(15,31,69,.24)}
+.jump-fab,.back-top{position:fixed;z-index:30;bottom:max(16px,env(safe-area-inset-bottom));height:42px;border:1px solid rgba(255,255,255,.36);background:#173771;color:#fff;box-shadow:0 10px 28px rgba(15,37,82,.22);font-weight:850;cursor:pointer}
+.jump-fab{left:max(14px,env(safe-area-inset-left));padding:0 14px;border-radius:999px;font-size:.72rem}
+.back-top{right:max(14px,env(safe-area-inset-right));width:42px;border-radius:50%;display:grid;place-items:center;text-decoration:none;font-size:1.08rem;line-height:1}
+.jump-fab:hover,.jump-fab:focus-visible,.back-top:hover,.back-top:focus-visible{background:#214994;outline:none}
+.jump-menu{position:fixed;z-index:31;left:max(14px,env(safe-area-inset-left));bottom:calc(max(16px,env(safe-area-inset-bottom)) + 50px);width:min(230px,calc(100vw - 28px));padding:8px;background:#fff;border:1px solid #dce5f1;border-radius:14px;box-shadow:0 18px 48px rgba(15,31,69,.24)}
 .foot{padding-bottom:84px}
 .jump-menu-title{padding:5px 7px 7px;color:#748198;font-size:.61rem;font-weight:900;text-transform:uppercase;letter-spacing:.055em}
 .jump-menu a{display:block;padding:9px 10px;border-radius:9px}
@@ -56,8 +53,8 @@ body[id="top"]{scroll-margin-top:0}
   .section-jump{padding:7px 8px;margin-bottom:9px}
   .section-jump-label{font-size:.59rem}
   .section-jump a{font-size:.66rem;padding:6px 7px}
-  .jump-fab,.dashboard-top-fab{height:40px}
-  .dashboard-top-fab{min-width:58px;padding:0 11px}
+  .jump-fab,.back-top{height:40px}
+  .back-top{width:40px}
   .foot{padding-bottom:76px}
 }
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.scroll-control{transition:none}}
