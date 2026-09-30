@@ -1,0 +1,20 @@
+{
+  "events": [
+    {
+      "eventId": "00000000-0000-4000-8000-000000000001",
+      "installationId": "00000000-0000-4000-8000-000000000002",
+      "cohort": "SCP 2026 Summer",
+      "appVersion": "19",
+      "clientTs": "2026-09-29T23:55:00.000Z",
+      "questionId": 1,
+      "mode": "study",
+      "attemptNumber": 1,
+      "result": "incorrect",
+      "credit": 0,
+      "selected": ["B"],
+      "responseTimeBucket": "10–29s",
+      "audioUsed": false,
+      "glossaryUsed": true
+    }
+  ]
+}
