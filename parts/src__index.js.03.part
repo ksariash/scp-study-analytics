@@ -1,0 +1,118 @@
+    FROM events ${where} GROUP BY substr(received_at,1,10) ORDER BY day`, params).all();
+  const activityRows = stmt(env, `SELECT COALESCE(client_ts, received_at) ts, timezone, installation_id
+    FROM events ${where} ORDER BY received_at`, params).all();
+
+  const [overviewA, overviewB, topicA, topicB, questionA, questionB, selections, questionTimes, topicTimes, locationRows, timelineRows, activityRaw] = await Promise.all([
+    baseOverview, pairOverview, topicBasic, topicPairs, questionBasic, questionPairs, selectionRows, questionTimeRows, topicTimeRows, locations, timeline, activityRows
+  ]);
+
+  const selectionMap = new Map();
+  const choiceMap = new Map();
+  const wrongMap = new Map();
+  const wrongCountMap = new Map();
+  const wrongTotalMap = new Map();
+  for (const row of resultsOf(selections)) {
+    const qid = Number(row.question_id);
+    const q = QUESTION_MAP.get(qid);
+    let letters = [];
+    try { letters = JSON.parse(row.selected_json); } catch (_) { letters = []; }
+    if (!Array.isArray(letters)) letters = [];
+    const n = Number(row.n) || 0;
+    const firstN = Number(row.first_n) || 0;
+    if (!selectionMap.has(qid)) selectionMap.set(qid, []);
+    selectionMap.get(qid).push({ letters, count: n, firstCount: firstN });
+    if (!choiceMap.has(qid)) choiceMap.set(qid, new Map());
+    const cm = choiceMap.get(qid);
+    for (const letter of letters) {
+      const prior = cm.get(letter) || { selected: 0, firstSelected: 0 };
+      prior.selected += n;
+      prior.firstSelected += firstN;
+      cm.set(letter, prior);
+    }
+    const correct = q ? [...q.answer].sort().join('|') : '';
+    const submitted = [...letters].sort().join('|');
+    if (submitted !== correct) {
+      wrongTotalMap.set(qid, (wrongTotalMap.get(qid) || 0) + n);
+      if ((wrongCountMap.get(qid) || 0) < n) {
+        wrongMap.set(qid, letters);
+        wrongCountMap.set(qid, n);
+      }
+    }
+  }
+
+  const questionTimeMap = new Map();
+  for (const row of resultsOf(questionTimes)) {
+    const qid = Number(row.question_id);
+    if (!questionTimeMap.has(qid)) questionTimeMap.set(qid, []);
+    questionTimeMap.get(qid).push({ bucket: row.response_time_bucket, n: Number(row.n) || 0 });
+  }
+  const topicTimeMap = new Map();
+  for (const row of resultsOf(topicTimes)) {
+    const category = String(row.category || '');
+    if (!topicTimeMap.has(category)) topicTimeMap.set(category, []);
+    topicTimeMap.get(category).push({ bucket: row.response_time_bucket, n: Number(row.n) || 0 });
+  }
+
+  const topics = combineRows(resultsOf(topicA), resultsOf(topicB)).map(r => ({
+    category: r.category, attempts: Number(r.attempts)||0, learners: Number(r.learners)||0,
+    firstAttempts: Number(r.first_attempts)||0, firstCorrect: Number(r.first_correct)||0,
+    audioUsed: Number(r.audio_used)||0, glossaryUsed: Number(r.glossary_used)||0,
+    pairs: Number(r.pairs)||0, eventualCorrect: Number(r.eventual_correct)||0,
+    firstMissed: Number(r.first_missed)||0, recovered: Number(r.recovered)||0,
+    timeBuckets: topicTimeMap.get(String(r.category || '')) || []
+  }));
+  const questions = combineRows(resultsOf(questionA), resultsOf(questionB), 'question_id').map(r => {
+    const qid = Number(r.question_id);
+    const q = QUESTION_MAP.get(qid);
+    const cm = choiceMap.get(qid) || new Map();
+    const choiceDistribution = (q?.choices || []).map((_, i) => {
+      const letter = String.fromCharCode(65 + i);
+      const counts = cm.get(letter) || { selected: 0, firstSelected: 0 };
+      return { letter, selected: counts.selected, firstSelected: counts.firstSelected };
+    });
+    return {
+      questionId: qid, category: r.category, attempts: Number(r.attempts)||0, learners: Number(r.learners)||0,
+      firstAttempts: Number(r.first_attempts)||0, firstCorrect: Number(r.first_correct)||0,
+      audioUsed: Number(r.audio_used)||0, glossaryUsed: Number(r.glossary_used)||0,
+      pairs: Number(r.pairs)||0, eventualCorrect: Number(r.eventual_correct)||0,
+      firstMissed: Number(r.first_missed)||0, recovered: Number(r.recovered)||0,
+      commonWrong: wrongMap.get(qid) || [], commonWrongCount: wrongCountMap.get(qid) || 0,
+      wrongAttempts: wrongTotalMap.get(qid) || 0,
+      timeBuckets: questionTimeMap.get(qid) || [],
+      choiceDistribution,
+      answerCombos: (selectionMap.get(qid) || []).sort((a,b) => b.count - a.count)
+    };
+  });
+  return jsonResponse({
+    generatedAt: new Date().toISOString(),
+    overview: {
+      submissions: Number(overviewA?.submissions)||0, learners: Number(overviewA?.learners)||0,
+      firstAttempts: Number(overviewA?.first_attempts)||0, firstCorrect: Number(overviewA?.first_correct)||0,
+      audioUsed: Number(overviewA?.audio_used)||0, glossaryUsed: Number(overviewA?.glossary_used)||0,
+      pairs: Number(overviewB?.pairs)||0, eventualCorrect: Number(overviewB?.eventual_correct)||0
+    },
+    topics, questions, locations: resultsOf(locationRows).map(r => ({
+      country:r.country, region:r.region, regionCode:r.region_code, city:r.city, learners:Number(r.learners)||0,
+      submissions:Number(r.submissions)||0, firstAttempts:Number(r.first_attempts)||0, firstCorrect:Number(r.first_correct)||0
+    })),
+    timeline: resultsOf(timelineRows).map(r => ({day:r.day,submissions:Number(r.submissions)||0,learners:Number(r.learners)||0,firstAttempts:Number(r.first_attempts)||0,firstCorrect:Number(r.first_correct)||0})),
+    activity: localActivity(resultsOf(activityRaw)),
+    questionCatalog: QUESTION_CATALOG
+  });
+}
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    if (request.method === 'OPTIONS' && url.pathname === '/api/events') {
+      const cors = eventCors(request, env);
+      return cors ? new Response(null, { status: 204, headers: cors }) : new Response(null, { status: 403 });
+    }
+    if (request.method === 'POST' && url.pathname === '/api/events') return ingestEvents(request, env);
+    if (request.method === 'GET' && url.pathname === '/api/health') return jsonResponse({ ok: true, service: 'scp-study-analytics', version: 3 });
+    if (request.method === 'GET' && url.pathname === '/api/options') return dashboardOptions(env);
+    if (request.method === 'GET' && url.pathname === '/api/summary') return dashboardSummary(request, env);
+    if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/dashboard')) return dashboardResponse();
+    return new Response('Not found', { status: 404, headers: { 'X-Robots-Tag': 'noindex, nofollow' } });
+  }
+};
