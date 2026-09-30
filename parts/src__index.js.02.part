@@ -54,6 +54,7 @@ function combineRows(primary, secondary, key = 'category') {
 async function dashboardSummary(request, env) {
   const url = new URL(request.url);
   const { where, params } = queryFilter(url);
+  await ensureGlossaryTable(env);
   const baseOverview = stmt(env, `SELECT COUNT(*) submissions, COUNT(DISTINCT installation_id) learners,
       SUM(CASE WHEN attempt_number = 1 THEN 1 ELSE 0 END) first_attempts,
       SUM(CASE WHEN attempt_number = 1 AND result = 'correct' THEN 1 ELSE 0 END) first_correct,
