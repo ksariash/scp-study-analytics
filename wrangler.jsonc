@@ -1,0 +1,17 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "scp-study-analytics",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-29",
+  "workers_dev": true,
+  "vars": {
+    "ALLOWED_ORIGIN": "https://scp-study.ksariash.workers.dev"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "scp-study-analytics-db",
+      "database_id": "832e0e9e-c8b9-434f-b9ef-4ad2f1a85117"
+    }
+  ]
+}
