@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "wrangler dev",
     "db:init": "wrangler d1 execute scp-study-analytics-db --remote --file=./schema.sql",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "build": "node build.mjs",
+    "predev": "npm run build",
+    "predeploy": "npm run build"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
