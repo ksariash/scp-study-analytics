@@ -1,5 +1,5 @@
 const FEEDBACK_TYPES = new Set(['question', 'essay_prompt', 'essay_pairing']);
-const FEEDBACK_REASONS = new Set(['confusing', 'inaccurate', 'wording', 'incomplete', 'other']);
+const FEEDBACK_REASONS = new Set(['confusing', 'inaccurate', 'wording', 'incomplete', 'notes_link', 'audio_link', 'other']);
 const FEEDBACK_STATUSES = new Set(['new', 'tracking', 'resolved', 'reopened']);
 let feedbackTablesReady = false;
 
@@ -271,6 +271,8 @@ async function feedbackIssues(request, env) {
       SUM(CASE WHEN r.reason='inaccurate' THEN 1 ELSE 0 END) inaccurate,
       SUM(CASE WHEN r.reason='wording' THEN 1 ELSE 0 END) wording_count,
       SUM(CASE WHEN r.reason='incomplete' THEN 1 ELSE 0 END) incomplete,
+      SUM(CASE WHEN r.reason='notes_link' THEN 1 ELSE 0 END) notes_link,
+      SUM(CASE WHEN r.reason='audio_link' THEN 1 ELSE 0 END) audio_link,
       SUM(CASE WHEN r.reason='other' THEN 1 ELSE 0 END) other
     FROM feedback_issues i
     JOIN feedback_reports r ON r.content_type=i.content_type AND r.content_id=i.content_id
@@ -302,6 +304,8 @@ async function feedbackIssues(request, env) {
         inaccurate: Number(r.inaccurate)||0,
         wording: Number(r.wording_count)||0,
         incomplete: Number(r.incomplete)||0,
+        notes_link: Number(r.notes_link)||0,
+        audio_link: Number(r.audio_link)||0,
         other: Number(r.other)||0
       }
     }))

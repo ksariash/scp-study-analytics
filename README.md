@@ -61,3 +61,8 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 ## Release 10
 
 - Renames the Summer 2026 cohort to `Nat Bar Nat & Stam Ye'enam - Summer 26` and migrates existing analytics rows from the prior cohort label.
+
+
+## Release 11
+
+- Accepts and reports two additional learner feedback reasons: incorrect notes connection and incorrect audio connection.
