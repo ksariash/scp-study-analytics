@@ -5,6 +5,7 @@ const targets = [
   ["src/index.js", "src__index.js"],
   ["src/dashboard.js", "src__dashboard.js"],
   ["src/question-catalog.js", "src__question-catalog.js"],
+  ["src/essay-catalog.js", "src__essay-catalog.js"],
 ];
 
 const dashboardEnhancement = await readFile("dashboard-navigation.snippet.js", "utf8");

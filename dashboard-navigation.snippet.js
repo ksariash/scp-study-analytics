@@ -6,6 +6,7 @@ function enhanceDashboardHtml(html) {
     ["#topics-review", "Topics"],
     ["#locations-review", "Locations"],
     ["#glossary-attention", "Glossary"],
+    ["#essay-analytics", "Essays"],
     ["#content-feedback", "Feedback"],
     ["#questions-diagnostics", "Questions"],
     ["#activity-over-time", "Activity"],
@@ -32,7 +33,7 @@ function enhanceDashboardHtml(html) {
 <style id="dashboardNavigationStyles">
 html{scroll-behavior:smooth}
 body[id="top"]{scroll-margin-top:0}
-#overview,#needs-review,#heat-map,#topics-review,#locations-review,#glossary-attention,#questions-diagnostics,#activity-over-time{scroll-margin-top:18px}
+#overview,#needs-review,#heat-map,#topics-review,#locations-review,#glossary-attention,#essay-analytics,#questions-diagnostics,#activity-over-time{scroll-margin-top:18px}
 .section-jump{display:flex;align-items:center;gap:9px;margin:0 0 12px;padding:8px 10px;background:#fff;border:1px solid var(--line);border-radius:13px;box-shadow:0 5px 16px rgba(24,41,75,.035);min-width:0}
 .section-jump-label{flex:0 0 auto;color:#708096;font-size:.64rem;font-weight:900;text-transform:uppercase;letter-spacing:.055em}
 .section-jump-links{display:flex;gap:6px;min-width:0;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;-webkit-overflow-scrolling:touch}
@@ -70,6 +71,21 @@ body[id="top"]{scroll-margin-top:0}
 .feedback-card-top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}.feedback-card-title{font-size:.76rem;font-weight:850;line-height:1.35;color:#243d6a}
 .feedback-card-meta{margin-top:6px;color:var(--muted);font-size:.62rem}.feedback-card-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:8px}.feedback-card-metrics div{padding:7px;border-radius:9px;background:#f7f9fc}.feedback-card-metrics b{display:block;font-size:.76rem}.feedback-card-metrics span{font-size:.57rem;color:var(--muted)}
 .feedback-empty{padding:18px;text-align:center;color:var(--muted);font-size:.72rem}
+.essay-analytics-overview{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px;margin-bottom:14px}
+.essay-analytics-card{padding:11px;border:1px solid #e4eaf3;border-radius:11px;background:#fbfcfe}
+.essay-analytics-card b{display:block;font-size:1.2rem}.essay-analytics-card span{display:block;margin-top:2px;color:var(--muted);font-size:.61rem;font-weight:750}
+.essay-subsection h3{margin:0 0 3px;font-size:.8rem}.essay-subsection .subcopy{display:block;margin-bottom:8px;color:var(--muted);font-size:.63rem}
+.essay-fact-btn{appearance:none;border:0;background:none;padding:0;color:#274d9a;font:inherit;font-weight:850;text-align:left;cursor:pointer}.essay-fact-btn:hover{text-decoration:underline}
+.essay-needs-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.essay-need{border:1px solid #e3e9f2;border-radius:10px;background:#fbfcfe;padding:9px;text-align:left;color:inherit;cursor:pointer}
+.essay-need strong{display:block;font-size:.72rem;line-height:1.35}.essay-need span{display:block;margin-top:4px;color:var(--muted);font-size:.61rem}.essay-need b{color:var(--bad)}
+.essay-fact-cards{display:none}.essay-fact-card{border:1px solid #e2e9f2;border-radius:11px;background:#fff;padding:10px}.essay-fact-card+.essay-fact-card{margin-top:7px}
+.essay-fact-card-top{display:flex;justify-content:space-between;gap:8px}.essay-fact-card .mini{margin-top:5px;color:var(--muted);font-size:.61rem}
+.essay-content-current{font-size:.58rem;font-weight:850;color:var(--good)}.essay-content-old{font-size:.58rem;font-weight:850;color:var(--warn)}
+.essay-detail-pairing{padding:11px;border:1px solid #e4eaf3;border-radius:11px;background:#f8fafc;line-height:1.45;font-size:.78rem}.essay-detail-pairing strong{display:block;margin-bottom:3px}
+.essay-confusion-row{display:grid;grid-template-columns:minmax(0,1fr) 78px 78px;gap:8px;padding:7px 0;border-bottom:1px solid #edf1f6;font-size:.69rem}.essay-confusion-row:last-child{border-bottom:0}
+.essay-confusion-row .num{text-align:right}
+@media(max-width:900px){.essay-analytics-overview{grid-template-columns:repeat(3,1fr)}}
+
 .jump-menu-title{padding:5px 7px 7px;color:#748198;font-size:.61rem;font-weight:900;text-transform:uppercase;letter-spacing:.055em}
 .jump-menu a{display:block;padding:9px 10px;border-radius:9px}
 .jump-menu a:hover,.jump-menu a:focus-visible{background:#eef3fb;outline:none}
@@ -86,6 +102,10 @@ body[id="top"]{scroll-margin-top:0}
   #feedbackIssues .desktop-table{display:none}
   .feedback-controls{width:100%}
   .feedback-controls select,.feedback-controls input[type="search"]{flex:1 1 130px}
+  .essay-analytics-overview{grid-template-columns:repeat(2,1fr)}
+  .essay-needs-grid{grid-template-columns:1fr}
+  .essay-fact-cards{display:block}
+  #essayFactDiagnostics .desktop-table{display:none}
 }
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.scroll-control{transition:none}}
 </style>`;
@@ -100,6 +120,20 @@ body[id="top"]{scroll-margin-top:0}
         '<select id="feedbackStatusFilter" aria-label="Feedback status"><option value="">All unresolved</option><option value="new">New</option><option value="tracking">Tracking</option><option value="reopened">Reopened</option><option value="resolved">Resolved</option></select>' +
         '<label class="feedback-resolved-toggle"><input id="feedbackShowResolved" type="checkbox"> Include resolved</label>' +
       '</div></div><div id="feedbackIssues"><div class="feedback-empty">Loading feedback…</div></div>' +
+    '</section>';
+
+
+  const essaySection =
+    '<section class="section" id="essay-analytics" style="margin-top:14px">' +
+      '<div class="section-head"><div class="headcopy"><h2>Essay analytics</h2><span>Practice diagnostics for essay rounds and atomic name/concept → position pairings</span></div></div>' +
+      '<div id="essayAnalyticsOverview" class="essay-analytics-overview"><div class="feedback-empty">Loading essay analytics…</div></div>' +
+      '<div class="grid2">' +
+        '<div class="essay-subsection"><h3>Essay performance</h3><span class="subcopy">Round completion, first-try pairing accuracy, and repeat practice</span><div id="essayPerformance"><div class="feedback-empty">Loading…</div></div></div>' +
+        '<div class="essay-subsection"><h3>Facts needing review</h3><span class="subcopy">Low first-try recognition after a minimum sample; adaptive selection affects exposure</span><div id="essayNeeds"><div class="feedback-empty">Loading…</div></div></div>' +
+      '</div>' +
+      '<div class="essay-subsection" style="margin-top:14px"><h3>Fact diagnostics</h3><span class="subcopy">See which real positions students confuse with each authority/concept. Confusion rate is wrong selections divided by times that alternative was offered.</span><div id="essayFactDiagnostics"><div class="feedback-empty">Loading…</div></div></div>' +
+      '<p class="sample-note" id="essayAnalyticsNote"></p>' +
+      '<dialog id="essayFactDialog"><div class="modal-head"><div><h2 id="essayFactDialogTitle">Essay fact</h2><p id="essayFactDialogSub"></p></div><button class="modal-close" id="essayFactDialogClose" type="button" aria-label="Close">×</button></div><div class="modal-body" id="essayFactDialogBody"></div></dialog>' +
     '</section>';
 
   const behavior = `
@@ -235,6 +269,143 @@ body[id="top"]{scroll-margin-top:0}
 })();
 </script>`;
 
+
+  const essayBehavior = `
+<script id="dashboardEssayAnalyticsScript">
+(() => {
+  const overviewEl = document.getElementById('essayAnalyticsOverview');
+  const performanceEl = document.getElementById('essayPerformance');
+  const needsEl = document.getElementById('essayNeeds');
+  const factsEl = document.getElementById('essayFactDiagnostics');
+  const noteEl = document.getElementById('essayAnalyticsNote');
+  const dialog = document.getElementById('essayFactDialog');
+  const dialogTitle = document.getElementById('essayFactDialogTitle');
+  const dialogSub = document.getElementById('essayFactDialogSub');
+  const dialogBody = document.getElementById('essayFactDialogBody');
+  const dialogClose = document.getElementById('essayFactDialogClose');
+  if (!overviewEl || !performanceEl || !needsEl || !factsEl) return;
+
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const pct = value => Number.isFinite(Number(value)) ? Math.round(Number(value) * 100) + '%' : '—';
+  const dec = value => Number.isFinite(Number(value)) ? Number(value).toFixed(2) : '—';
+  let data = null;
+  let busy = false;
+
+  function params() {
+    const p = new URLSearchParams();
+    ['cohort','country','region','city','from','to'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el?.value) p.set(id, el.value);
+    });
+    return p;
+  }
+
+  function overviewCard(value, label) {
+    return '<div class="essay-analytics-card"><b>' + esc(value) + '</b><span>' + esc(label) + '</span></div>';
+  }
+
+  function renderOverview(o) {
+    overviewEl.innerHTML =
+      overviewCard(o.learners || 0, 'Essay learners') +
+      overviewCard((o.completions || 0) + ' / ' + (o.starts || 0), 'Rounds completed / started') +
+      overviewCard(pct(o.completionRate || 0), 'Round completion') +
+      overviewCard(pct(o.firstTryRate || 0), 'Pairings correct first try') +
+      overviewCard(pct(o.perfectRate || 0), 'Perfect completed rounds');
+  }
+
+  function renderPerformance(essays) {
+    const used = (essays || []).filter(e => Number(e.starts) || Number(e.pairings));
+    if (!used.length) { performanceEl.innerHTML = '<div class="feedback-empty">No essay-practice data for these filters yet.</div>'; return; }
+    performanceEl.innerHTML = '<div class="tablewrap"><table><thead><tr><th>Essay</th><th class="num">Learners</th><th class="num">Rounds</th><th class="num">Completion</th><th class="num">First try</th><th class="num">Perfect</th><th class="num">Retries</th></tr></thead><tbody>' +
+      used.map(e => '<tr><td><strong>' + esc(e.title) + '</strong></td><td class="num">' + Number(e.learners||0) + '</td><td class="num">' + Number(e.completions||0) + '/' + Number(e.starts||0) + '</td><td class="num">' + pct(e.completionRate||0) + '</td><td class="num">' + pct(e.firstTryRate||0) + '</td><td class="num">' + pct(e.perfectRate||0) + '</td><td class="num">' + Number(e.sources?.retry||0) + '</td></tr>').join('') +
+      '</tbody></table></div>';
+  }
+
+  function factLabel(f) {
+    return (f.name || f.label || f.factId) + ' → ' + (f.position || '');
+  }
+
+  function renderNeeds(facts) {
+    const needs = (facts || []).filter(f => Number(f.exposures) >= 5 && Number(f.learners) >= 3)
+      .sort((a,b) => Number(a.firstTryRate) - Number(b.firstTryRate) || Number(b.exposures) - Number(a.exposures))
+      .slice(0,8);
+    if (!needs.length) { needsEl.innerHTML = '<div class="feedback-empty">Not enough repeated exposure yet to surface stable fact-level patterns.</div>'; return; }
+    needsEl.innerHTML = '<div class="essay-needs-grid">' + needs.map(f =>
+      '<button class="essay-need" type="button" data-essay-fact="' + esc(f.factId) + '"><strong>' + esc(f.name || f.label) + '</strong><span><b>' + pct(f.firstTryRate||0) + '</b> first try · ' + Number(f.exposures||0) + ' exposures · ' + Number(f.learners||0) + ' learners</span><span>' + esc(f.essayTitle) + '</span></button>'
+    ).join('') + '</div>';
+  }
+
+  function confusionText(f) {
+    const c = f.mostConfusedWith;
+    if (!c || !c.wrong) return '—';
+    return (c.name || c.factId) + ' · ' + pct(c.rate || 0);
+  }
+
+  function renderFacts(facts) {
+    const used = (facts || []).filter(f => Number(f.exposures) > 0)
+      .sort((a,b) => Number(a.firstTryRate) - Number(b.firstTryRate) || Number(b.exposures) - Number(a.exposures));
+    if (!used.length) { factsEl.innerHTML = '<div class="feedback-empty">No pairing events for these filters yet.</div>'; return; }
+    const rows = used.map(f => '<tr><td><button class="essay-fact-btn" type="button" data-essay-fact="' + esc(f.factId) + '">' + esc(f.name || f.label) + '</button><div class="sample-note">' + esc(f.position) + '</div></td><td>' + esc(f.essayTitle) + '</td><td class="num">' + Number(f.learners||0) + '</td><td class="num">' + Number(f.exposures||0) + '</td><td class="num">' + pct(f.firstTryRate||0) + '</td><td class="num">' + dec(f.avgWrong||0) + '</td><td>' + esc(confusionText(f)) + '</td><td>' + (Number(f.olderExposures)>0 ? '<span class="essay-content-old">' + Number(f.olderExposures) + ' older</span>' : '<span class="essay-content-current">current</span>') + '</td></tr>').join('');
+    const cards = used.map(f => '<div class="essay-fact-card"><div class="essay-fact-card-top"><button class="essay-fact-btn" type="button" data-essay-fact="' + esc(f.factId) + '">' + esc(f.name || f.label) + '</button><b>' + pct(f.firstTryRate||0) + '</b></div><div class="mini">' + esc(f.essayTitle) + ' · ' + Number(f.exposures||0) + ' exposures · ' + Number(f.learners||0) + ' learners</div><div class="mini">Most confused: ' + esc(confusionText(f)) + '</div></div>').join('');
+    factsEl.innerHTML = '<div class="tablewrap desktop-table"><table><thead><tr><th>Pairing</th><th>Essay</th><th class="num">Learners</th><th class="num">Exposure</th><th class="num">First try</th><th class="num">Avg wrong</th><th>Most confused with</th><th>Version</th></tr></thead><tbody>' + rows + '</tbody></table></div><div class="essay-fact-cards">' + cards + '</div>';
+  }
+
+  function openFact(id) {
+    const f = data?.facts?.find(x => String(x.factId) === String(id));
+    if (!f || !dialog) return;
+    dialogTitle.textContent = f.name || f.label || f.factId;
+    dialogSub.textContent = f.essayTitle || '';
+    const confusions = (f.confusion || []).filter(c => Number(c.offered) > 0);
+    dialogBody.innerHTML =
+      '<div class="essay-detail-pairing"><strong>' + esc(f.name || f.label) + '</strong>' + esc(f.position || '') + '</div>' +
+      '<div class="modal-metrics" style="margin-top:12px">' +
+        '<div class="modal-metric"><b>' + Number(f.learners||0) + '</b><span>Learners</span></div>' +
+        '<div class="modal-metric"><b>' + Number(f.exposures||0) + '</b><span>Exposures</span></div>' +
+        '<div class="modal-metric"><b>' + pct(f.firstTryRate||0) + '</b><span>First try</span></div>' +
+        '<div class="modal-metric"><b>' + dec(f.avgWrong||0) + '</b><span>Avg wrong</span></div>' +
+      '</div>' +
+      '<div class="dist-title">Confusion opportunities</div>' +
+      (confusions.length ? confusions.map(c => '<div class="essay-confusion-row"><div><strong>' + esc(c.name || c.factId) + '</strong><div class="sample-note">' + esc(c.position || '') + '</div></div><div class="num"><b>' + Number(c.wrong||0) + '</b><div class="sample-note">wrong / ' + Number(c.offered||0) + ' offered</div></div><div class="num"><b>' + pct(c.rate||0) + '</b><div class="sample-note">confusion</div></div></div>').join('') : '<div class="feedback-empty">No alternative-position confusion has been recorded for this fact.</div>') +
+      (Number(f.olderExposures)>0 ? '<p class="sample-note">' + Number(f.olderExposures) + ' exposure(s) used older wording/content; current-content exposures: ' + Number(f.currentExposures||0) + '.</p>' : '');
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function render(d) {
+    data = d;
+    renderOverview(d.overview || {});
+    renderPerformance(d.essays || []);
+    renderNeeds(d.facts || []);
+    renderFacts(d.facts || []);
+    if (noteEl) noteEl.textContent = d.note || '';
+  }
+
+  async function load() {
+    if (busy) return;
+    busy = true;
+    try {
+      const r = await fetch('/api/essay-summary?' + params().toString(), { cache:'no-store' });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Could not load essay analytics');
+      render(d);
+    } catch (error) {
+      const message = '<div class="feedback-empty">' + esc(error.message) + '</div>';
+      overviewEl.innerHTML = message; performanceEl.innerHTML = message; needsEl.innerHTML = message; factsEl.innerHTML = message;
+    } finally { busy = false; }
+  }
+
+  [performanceEl, needsEl, factsEl].forEach(el => el.addEventListener('click', e => {
+    const button = e.target.closest('[data-essay-fact]');
+    if (button) openFact(button.dataset.essayFact);
+  }));
+  dialogClose?.addEventListener('click', () => dialog.close());
+  dialog?.addEventListener('click', e => { if (e.target === dialog) dialog.close(); });
+  ['cohort','country','region','city','from','to'].forEach(id => document.getElementById(id)?.addEventListener('change', () => setTimeout(load, 0)));
+  document.getElementById('clearFilters')?.addEventListener('click', () => setTimeout(load, 0));
+  document.getElementById('refreshData')?.addEventListener('click', () => setTimeout(load, 0));
+  load();
+})();
+</script>`;
+
   return html
     .replace('<body>', '<body id="top">')
     .replace('<section class="filters" aria-label="Dashboard filters">', '<section class="filters" id="dashboard-filters" aria-label="Dashboard filters">')
@@ -243,12 +414,12 @@ body[id="top"]{scroll-margin-top:0}
     .replace('<h2>Topics needing review</h2>', '<h2 id="topics-review">Topics needing review</h2>')
     .replace('<h2>Where students are studying</h2>', '<h2 id="locations-review">Where students are studying</h2>')
     .replace('<h2>Glossary term attention</h2>', '<h2 id="glossary-attention">Glossary term attention</h2>')
-    .replace('<section class="section" style="margin-top:14px"><div class="section-head"><div class="headcopy"><h2>Question diagnostics</h2>', feedbackSection + '<section class="section" style="margin-top:14px"><div class="section-head"><div class="headcopy"><h2>Question diagnostics</h2>')
+    .replace('<section class="section" style="margin-top:14px"><div class="section-head"><div class="headcopy"><h2>Question diagnostics</h2>', essaySection + feedbackSection + '<section class="section" style="margin-top:14px"><div class="section-head"><div class="headcopy"><h2>Question diagnostics</h2>')
     .replace('<h2>Question diagnostics</h2>', '<h2 id="questions-diagnostics">Question diagnostics</h2>')
     .replace('<h2>Activity over time</h2>', '<h2 id="activity-over-time">Activity over time</h2>')
     .replace('<section class="overview" id="overview"></section>', inlineNav + '<section class="overview" id="overview"></section>')
     .replace('</head>', styles + '</head>')
-    .replace('</body>', floatingNav + behavior + feedbackBehavior + '</body>');
+    .replace('</body>', floatingNav + behavior + feedbackBehavior + essayBehavior + '</body>');
 }
 
 export const DASHBOARD_HTML = enhanceDashboardHtml(__DASHBOARD_BASE_HTML);

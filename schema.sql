@@ -145,3 +145,71 @@ CREATE TABLE IF NOT EXISTS feedback_admin_actions (
   result_status TEXT,
   result_note TEXT
 );
+
+
+CREATE TABLE IF NOT EXISTS essay_round_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_event_id TEXT NOT NULL UNIQUE,
+  installation_id TEXT NOT NULL,
+  cohort TEXT NOT NULL,
+  app_version TEXT,
+  client_ts TEXT,
+  received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  event_type TEXT NOT NULL CHECK (event_type IN ('essay_round_start','essay_round_complete')),
+  round_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  essay_id TEXT NOT NULL,
+  source TEXT NOT NULL,
+  attempt_in_round INTEGER NOT NULL,
+  total_facts INTEGER NOT NULL,
+  first_try_correct INTEGER,
+  total_wrong INTEGER,
+  perfect INTEGER,
+  duration_bucket TEXT,
+  essay_content_hash TEXT,
+  country TEXT,
+  region TEXT,
+  region_code TEXT,
+  city TEXT,
+  timezone TEXT,
+  metro_code TEXT,
+  latitude_rounded REAL,
+  longitude_rounded REAL
+);
+CREATE INDEX IF NOT EXISTS idx_essay_round_received ON essay_round_events(received_at);
+CREATE INDEX IF NOT EXISTS idx_essay_round_essay ON essay_round_events(essay_id, event_type);
+CREATE INDEX IF NOT EXISTS idx_essay_round_install_essay ON essay_round_events(installation_id, essay_id);
+CREATE INDEX IF NOT EXISTS idx_essay_round_round ON essay_round_events(round_id);
+
+CREATE TABLE IF NOT EXISTS essay_pairing_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_event_id TEXT NOT NULL UNIQUE,
+  installation_id TEXT NOT NULL,
+  cohort TEXT NOT NULL,
+  app_version TEXT,
+  client_ts TEXT,
+  received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  round_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  essay_id TEXT NOT NULL,
+  fact_id TEXT NOT NULL,
+  step_index INTEGER NOT NULL,
+  first_try INTEGER NOT NULL,
+  presented_choice_ids_json TEXT NOT NULL,
+  wrong_choice_ids_json TEXT NOT NULL,
+  response_time_bucket TEXT NOT NULL,
+  fact_content_hash TEXT,
+  audio_used INTEGER NOT NULL DEFAULT 0,
+  country TEXT,
+  region TEXT,
+  region_code TEXT,
+  city TEXT,
+  timezone TEXT,
+  metro_code TEXT,
+  latitude_rounded REAL,
+  longitude_rounded REAL
+);
+CREATE INDEX IF NOT EXISTS idx_essay_pair_received ON essay_pairing_events(received_at);
+CREATE INDEX IF NOT EXISTS idx_essay_pair_fact ON essay_pairing_events(essay_id, fact_id);
+CREATE INDEX IF NOT EXISTS idx_essay_pair_install_fact ON essay_pairing_events(installation_id, fact_id);
+CREATE INDEX IF NOT EXISTS idx_essay_pair_round ON essay_pairing_events(round_id);

@@ -17,9 +17,22 @@
     client_event_id, installation_id, cohort, app_version, client_ts, term_id, term, source, question_id, category, mode,
     country, region, region_code, city, timezone, metro_code, latitude_rounded, longitude_rounded
   ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+  const essayRoundSql = `INSERT OR IGNORE INTO essay_round_events (
+    client_event_id, installation_id, cohort, app_version, client_ts, event_type, round_id, session_id, essay_id, source,
+    attempt_in_round, total_facts, first_try_correct, total_wrong, perfect, duration_bucket, essay_content_hash,
+    country, region, region_code, city, timezone, metro_code, latitude_rounded, longitude_rounded
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+  const essayPairingSql = `INSERT OR IGNORE INTO essay_pairing_events (
+    client_event_id, installation_id, cohort, app_version, client_ts, round_id, session_id, essay_id, fact_id, step_index,
+    first_try, presented_choice_ids_json, wrong_choice_ids_json, response_time_bucket, fact_content_hash, audio_used,
+    country, region, region_code, city, timezone, metro_code, latitude_rounded, longitude_rounded
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
   const answers = events.filter(e => e.kind === 'answer');
   const glossaryEvents = events.filter(e => e.kind === 'glossary');
+  const essayRoundEvents = events.filter(e => e.kind === 'essay_round_start' || e.kind === 'essay_round_complete');
+  const essayPairingEvents = events.filter(e => e.kind === 'essay_pairing');
   if (glossaryEvents.length) await ensureGlossaryTable(env);
+  if (essayRoundEvents.length || essayPairingEvents.length) await ensureEssayTables(env);
   const statements = [
     ...answers.map(e => env.DB.prepare(answerSql).bind(
       e.eventId, e.installationId, e.cohort, e.appVersion, e.clientTs, e.questionId, e.category, e.mode, e.attemptNumber, e.result, e.credit,
@@ -28,16 +41,38 @@
     ...glossaryEvents.map(e => env.DB.prepare(glossarySql).bind(
       e.eventId, e.installationId, e.cohort, e.appVersion, e.clientTs, e.termId, e.term, e.source, e.questionId, e.category, e.mode,
       geo.country, geo.region, geo.regionCode, geo.city, geo.timezone, geo.metroCode, geo.latitude, geo.longitude
+    )),
+    ...essayRoundEvents.map(e => env.DB.prepare(essayRoundSql).bind(
+      e.eventId, e.installationId, e.cohort, e.appVersion, e.clientTs, e.kind, e.roundId, e.sessionId, e.essayId, e.source,
+      e.attemptInRound, e.totalFacts, e.firstTryCorrect, e.totalWrong, e.perfect, e.durationBucket, e.essayContentHash,
+      geo.country, geo.region, geo.regionCode, geo.city, geo.timezone, geo.metroCode, geo.latitude, geo.longitude
+    )),
+    ...essayPairingEvents.map(e => env.DB.prepare(essayPairingSql).bind(
+      e.eventId, e.installationId, e.cohort, e.appVersion, e.clientTs, e.roundId, e.sessionId, e.essayId, e.factId, e.stepIndex,
+      e.firstTry, JSON.stringify(e.presented), JSON.stringify(e.wrong), e.bucket, e.factContentHash, e.audioUsed,
+      geo.country, geo.region, geo.regionCode, geo.city, geo.timezone, geo.metroCode, geo.latitude, geo.longitude
     ))
   ];
   await env.DB.batch(statements);
-  return jsonResponse({ ok: true, accepted: events.length, answers: answers.length, glossary: glossaryEvents.length }, { headers: cors });
+  return jsonResponse({
+    ok: true, accepted: events.length, answers: answers.length, glossary: glossaryEvents.length,
+    essayRounds: essayRoundEvents.length, essayPairings: essayPairingEvents.length
+  }, { headers: cors });
 }
 
 async function dashboardOptions(env) {
+  await ensureEssayTables(env);
   const [cohorts, locations] = await Promise.all([
-    env.DB.prepare(`SELECT DISTINCT cohort FROM events WHERE cohort IS NOT NULL AND cohort != '' ORDER BY cohort DESC`).all(),
-    env.DB.prepare(`SELECT DISTINCT country, region, region_code, city FROM events WHERE country IS NOT NULL ORDER BY country, region, city`).all()
+    env.DB.prepare(`SELECT DISTINCT cohort FROM (
+      SELECT cohort FROM events
+      UNION ALL
+      SELECT cohort FROM essay_round_events
+    ) WHERE cohort IS NOT NULL AND cohort != '' ORDER BY cohort DESC`).all(),
+    env.DB.prepare(`SELECT DISTINCT country, region, region_code, city FROM (
+      SELECT country, region, region_code, city FROM events
+      UNION ALL
+      SELECT country, region, region_code, city FROM essay_round_events
+    ) WHERE country IS NOT NULL ORDER BY country, region, city`).all()
   ]);
   return jsonResponse({
     cohorts: resultsOf(cohorts).map(x => x.cohort),

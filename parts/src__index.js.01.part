@@ -1,11 +1,18 @@
 import { DASHBOARD_HTML } from './dashboard.js';
 import { QUESTION_CATALOG } from './question-catalog.js';
+import { ESSAY_CATALOG } from './essay-catalog.js';
 
 const QUESTION_MAP = new Map(QUESTION_CATALOG.map(q => [Number(q.id), q]));
+const ESSAY_MAP = new Map(ESSAY_CATALOG.map(essay => [String(essay.id), essay]));
+const ESSAY_FACT_MAP = new Map();
+for (const essay of ESSAY_CATALOG) {
+  for (const fact of essay.facts || []) ESSAY_FACT_MAP.set(String(fact.id), { essay, fact });
+}
 const RESPONSE_BUCKETS = new Set(['<10s', '10–29s', '30–59s', '1–2m', '2–5m', '5m+']);
 const MODES = new Set(['study', 'test']);
 const RESULTS = new Set(['correct', 'partial', 'incorrect']);
 const GLOSSARY_SOURCES = new Set(['question', 'materials', 'other']);
+const ESSAY_SOURCES = new Set(['adaptive', 'library', 'retry', 'next']);
 const FILTER_FIELDS = new Map([
   ['cohort', 'cohort'], ['country', 'country'], ['region', 'region'], ['city', 'city'], ['category', 'category'], ['mode', 'mode']
 ]);
@@ -214,6 +221,69 @@ async function ensureGlossaryTable(env) {
   glossaryTableReady = true;
 }
 
+
+let essayTablesReady = false;
+async function ensureEssayTables(env) {
+  if (essayTablesReady) return;
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS essay_round_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_event_id TEXT NOT NULL UNIQUE,
+    installation_id TEXT NOT NULL,
+    cohort TEXT NOT NULL,
+    app_version TEXT,
+    client_ts TEXT,
+    received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    event_type TEXT NOT NULL CHECK (event_type IN ('essay_round_start','essay_round_complete')),
+    round_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    essay_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    attempt_in_round INTEGER NOT NULL,
+    total_facts INTEGER NOT NULL,
+    first_try_correct INTEGER,
+    total_wrong INTEGER,
+    perfect INTEGER,
+    duration_bucket TEXT,
+    essay_content_hash TEXT,
+    country TEXT, region TEXT, region_code TEXT, city TEXT, timezone TEXT, metro_code TEXT,
+    latitude_rounded REAL, longitude_rounded REAL
+  )`).run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS essay_pairing_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_event_id TEXT NOT NULL UNIQUE,
+    installation_id TEXT NOT NULL,
+    cohort TEXT NOT NULL,
+    app_version TEXT,
+    client_ts TEXT,
+    received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    round_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    essay_id TEXT NOT NULL,
+    fact_id TEXT NOT NULL,
+    step_index INTEGER NOT NULL,
+    first_try INTEGER NOT NULL,
+    presented_choice_ids_json TEXT NOT NULL,
+    wrong_choice_ids_json TEXT NOT NULL,
+    response_time_bucket TEXT NOT NULL,
+    fact_content_hash TEXT,
+    audio_used INTEGER NOT NULL DEFAULT 0,
+    country TEXT, region TEXT, region_code TEXT, city TEXT, timezone TEXT, metro_code TEXT,
+    latitude_rounded REAL, longitude_rounded REAL
+  )`).run();
+  const indexes = [
+    'CREATE INDEX IF NOT EXISTS idx_essay_round_received ON essay_round_events(received_at)',
+    'CREATE INDEX IF NOT EXISTS idx_essay_round_essay ON essay_round_events(essay_id, event_type)',
+    'CREATE INDEX IF NOT EXISTS idx_essay_round_install_essay ON essay_round_events(installation_id, essay_id)',
+    'CREATE INDEX IF NOT EXISTS idx_essay_round_round ON essay_round_events(round_id)',
+    'CREATE INDEX IF NOT EXISTS idx_essay_pair_received ON essay_pairing_events(received_at)',
+    'CREATE INDEX IF NOT EXISTS idx_essay_pair_fact ON essay_pairing_events(essay_id, fact_id)',
+    'CREATE INDEX IF NOT EXISTS idx_essay_pair_install_fact ON essay_pairing_events(installation_id, fact_id)',
+    'CREATE INDEX IF NOT EXISTS idx_essay_pair_round ON essay_pairing_events(round_id)'
+  ];
+  for (const sql of indexes) await env.DB.prepare(sql).run();
+  essayTablesReady = true;
+}
+
 function normalizeEvent(raw) {
   if (!raw || typeof raw !== 'object') throw new Error('Invalid event');
   const questionId = Number(raw.questionId);
@@ -265,8 +335,73 @@ function normalizeGlossaryEvent(raw) {
   };
 }
 
+
+function normalizeEssayIdentity(raw) {
+  const eventId = text(raw.eventId, 100);
+  const installationId = text(raw.installationId, 100);
+  const cohort = text(raw.cohort, 100);
+  const appVersion = text(raw.appVersion, 32);
+  const roundId = text(raw.roundId, 100);
+  const sessionId = text(raw.sessionId, 100);
+  const essayId = text(raw.essayId, 100);
+  const essay = essayId ? ESSAY_MAP.get(essayId) : null;
+  if (!eventId || !installationId || !cohort || !roundId || !sessionId || !essay) throw new Error('Malformed essay event');
+  return { eventId, installationId, cohort, appVersion, clientTs: validIsoDate(raw.clientTs), roundId, sessionId, essayId, essay };
+}
+
+function normalizeEssayRoundEvent(raw) {
+  const base = normalizeEssayIdentity(raw);
+  const kind = text(raw.kind, 32);
+  if (kind !== 'essay_round_start' && kind !== 'essay_round_complete') throw new Error('Unknown essay round event');
+  const source = text(raw.source, 20);
+  const attemptInRound = Math.trunc(Number(raw.attemptInRound));
+  const totalFacts = Math.trunc(Number(raw.totalFacts));
+  const essayContentHash = text(raw.essayContentHash, 80);
+  if (!ESSAY_SOURCES.has(source) || !Number.isInteger(attemptInRound) || attemptInRound < 1 || attemptInRound > 1000 ||
+      !Number.isInteger(totalFacts) || totalFacts !== (base.essay.facts || []).length || !essayContentHash) {
+    throw new Error('Malformed essay round event');
+  }
+  let firstTryCorrect = null, totalWrong = null, perfect = null, durationBucket = null;
+  if (kind === 'essay_round_complete') {
+    firstTryCorrect = Math.trunc(Number(raw.firstTryCorrect));
+    totalWrong = Math.trunc(Number(raw.totalWrong));
+    durationBucket = text(raw.durationBucket, 16);
+    if (!Number.isInteger(firstTryCorrect) || firstTryCorrect < 0 || firstTryCorrect > totalFacts ||
+        !Number.isInteger(totalWrong) || totalWrong < 0 || !RESPONSE_BUCKETS.has(durationBucket) ||
+        typeof raw.perfect !== 'boolean') throw new Error('Malformed essay completion');
+    perfect = boolInt(raw.perfect);
+  }
+  return {
+    kind, ...base, source, attemptInRound, totalFacts, firstTryCorrect, totalWrong, perfect, durationBucket, essayContentHash
+  };
+}
+
+function normalizeEssayPairingEvent(raw) {
+  const base = normalizeEssayIdentity(raw);
+  const factId = text(raw.factId, 100);
+  const mapped = factId ? ESSAY_FACT_MAP.get(factId) : null;
+  if (!mapped || String(mapped.essay.id) !== base.essayId) throw new Error('Unknown essay pairing');
+  const validFactIds = new Set((base.essay.facts || []).map(fact => String(fact.id)));
+  const presented = [...new Set((Array.isArray(raw.presentedChoiceIds) ? raw.presentedChoiceIds : []).map(x => String(x)).filter(x => validFactIds.has(x)))];
+  const wrong = [...new Set((Array.isArray(raw.wrongChoiceIds) ? raw.wrongChoiceIds : []).map(x => String(x)).filter(x => validFactIds.has(x) && x !== factId))];
+  const stepIndex = Math.trunc(Number(raw.stepIndex));
+  const bucket = text(raw.responseTimeBucket, 16);
+  const factContentHash = text(raw.factContentHash, 80);
+  if (!presented.includes(factId) || presented.length < 1 || presented.length > 10 ||
+      wrong.some(id => !presented.includes(id)) || !Number.isInteger(stepIndex) || stepIndex < 1 || stepIndex > validFactIds.size ||
+      typeof raw.firstTry !== 'boolean' || !RESPONSE_BUCKETS.has(bucket) || !factContentHash) {
+    throw new Error('Malformed essay pairing event');
+  }
+  return {
+    kind: 'essay_pairing', ...base, factId, stepIndex, firstTry: boolInt(raw.firstTry),
+    presented, wrong, bucket, factContentHash, audioUsed: boolInt(raw.audioUsed)
+  };
+}
+
 function normalizeIncomingEvent(raw) {
   if (raw?.kind === 'glossary') return normalizeGlossaryEvent(raw);
+  if (raw?.kind === 'essay_round_start' || raw?.kind === 'essay_round_complete') return normalizeEssayRoundEvent(raw);
+  if (raw?.kind === 'essay_pairing') return normalizeEssayPairingEvent(raw);
   return { kind: 'answer', ...normalizeEvent(raw) };
 }
 

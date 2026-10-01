@@ -137,6 +137,175 @@
   });
 }
 
+
+function essayAnalyticsFilter(url) {
+  const clauses = [];
+  const params = [];
+  for (const field of ['cohort','country','region','city']) {
+    const value = text(url.searchParams.get(field), 160);
+    if (value) { clauses.push(`${field} = ?`); params.push(value); }
+  }
+  const from = text(url.searchParams.get('from'), 10);
+  const to = text(url.searchParams.get('to'), 10);
+  if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) { clauses.push('received_at >= ?'); params.push(`${from}T00:00:00.000Z`); }
+  if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    const d = new Date(`${to}T00:00:00.000Z`); d.setUTCDate(d.getUTCDate() + 1);
+    clauses.push('received_at < ?'); params.push(d.toISOString());
+  }
+  return { where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', params };
+}
+
+function contentHash(value) {
+  let hash = 2166136261;
+  const input = String(value || '');
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function currentEssayHash(essay) {
+  return contentHash([
+    essay.prompt || '',
+    ...(essay.facts || []).map(fact => `${fact.name || fact.label || ''} → ${fact.position || ''}`),
+    essay.modelAnswer || ''
+  ].join('\n'));
+}
+function currentFactHash(fact) {
+  return contentHash(`${fact.name || fact.label || ''} → ${fact.position || ''}`);
+}
+function parseIdArray(value) {
+  try { const parsed = JSON.parse(value || '[]'); return Array.isArray(parsed) ? parsed.map(String) : []; }
+  catch (_) { return []; }
+}
+
+async function dashboardEssaySummary(request, env) {
+  await ensureEssayTables(env);
+  const url = new URL(request.url);
+  const filter = essayAnalyticsFilter(url);
+  const [roundResult, pairingResult] = await Promise.all([
+    stmt(env, `SELECT installation_id, event_type, round_id, session_id, essay_id, source, attempt_in_round, total_facts,
+        first_try_correct, total_wrong, perfect, duration_bucket, essay_content_hash, received_at
+      FROM essay_round_events ${filter.where} ORDER BY received_at`, filter.params).all(),
+    stmt(env, `SELECT installation_id, round_id, session_id, essay_id, fact_id, step_index, first_try,
+        presented_choice_ids_json, wrong_choice_ids_json, response_time_bucket, fact_content_hash, audio_used, received_at
+      FROM essay_pairing_events ${filter.where} ORDER BY received_at`, filter.params).all()
+  ]);
+  const rounds = resultsOf(roundResult);
+  const pairings = resultsOf(pairingResult);
+  const overallLearners = new Set();
+
+  const essayStats = new Map(ESSAY_CATALOG.map(essay => [String(essay.id), {
+    essayId: String(essay.id), title: essay.title, learners: new Set(), starts: 0, completions: 0, perfect: 0,
+    pairings: 0, firstTry: 0, wrongChoices: 0, audioUsed: 0,
+    sources: { adaptive: 0, library: 0, retry: 0, next: 0 },
+    currentStarts: 0, olderStarts: 0
+  }]));
+  for (const row of rounds) {
+    const stat = essayStats.get(String(row.essay_id));
+    if (!stat) continue;
+    if (row.installation_id) { stat.learners.add(String(row.installation_id)); overallLearners.add(String(row.installation_id)); }
+    const essay = ESSAY_MAP.get(String(row.essay_id));
+    const isCurrent = essay && row.essay_content_hash === currentEssayHash(essay);
+    if (row.event_type === 'essay_round_start') {
+      stat.starts += 1;
+      if (stat.sources[row.source] != null) stat.sources[row.source] += 1;
+      if (isCurrent) stat.currentStarts += 1; else stat.olderStarts += 1;
+    } else if (row.event_type === 'essay_round_complete') {
+      stat.completions += 1;
+      stat.perfect += Number(row.perfect) ? 1 : 0;
+    }
+  }
+
+  const factStats = new Map();
+  for (const essay of ESSAY_CATALOG) {
+    for (const fact of essay.facts || []) {
+      factStats.set(String(fact.id), {
+        essayId: String(essay.id), essayTitle: essay.title, factId: String(fact.id), label: fact.label,
+        name: fact.name, position: fact.position, learners: new Set(), exposures: 0, firstTry: 0,
+        wrongTotal: 0, audioUsed: 0, currentExposures: 0, olderExposures: 0,
+        offered: new Map(), wrong: new Map(), timeBuckets: new Map()
+      });
+    }
+  }
+
+  for (const row of pairings) {
+    const essayStat = essayStats.get(String(row.essay_id));
+    const stat = factStats.get(String(row.fact_id));
+    if (!stat || !essayStat) continue;
+    const learner = String(row.installation_id || '');
+    if (learner) {
+      stat.learners.add(learner);
+      essayStat.learners.add(learner);
+      overallLearners.add(learner);
+    }
+    stat.exposures += 1;
+    essayStat.pairings += 1;
+    if (Number(row.first_try)) { stat.firstTry += 1; essayStat.firstTry += 1; }
+    stat.audioUsed += Number(row.audio_used) || 0;
+    essayStat.audioUsed += Number(row.audio_used) || 0;
+    const wrong = parseIdArray(row.wrong_choice_ids_json);
+    const presented = parseIdArray(row.presented_choice_ids_json);
+    stat.wrongTotal += wrong.length;
+    essayStat.wrongChoices += wrong.length;
+    const current = ESSAY_FACT_MAP.get(String(row.fact_id));
+    if (current && row.fact_content_hash === currentFactHash(current.fact)) stat.currentExposures += 1;
+    else stat.olderExposures += 1;
+    stat.timeBuckets.set(String(row.response_time_bucket || ''), (stat.timeBuckets.get(String(row.response_time_bucket || '')) || 0) + 1);
+    for (const id of presented) {
+      if (id === stat.factId) continue;
+      stat.offered.set(id, (stat.offered.get(id) || 0) + 1);
+    }
+    for (const id of wrong) stat.wrong.set(id, (stat.wrong.get(id) || 0) + 1);
+  }
+
+  const essays = [...essayStats.values()].map(stat => ({
+    essayId: stat.essayId, title: stat.title, learners: stat.learners.size, starts: stat.starts, completions: stat.completions,
+    completionRate: stat.starts ? stat.completions / stat.starts : 0,
+    perfect: stat.perfect, perfectRate: stat.completions ? stat.perfect / stat.completions : 0,
+    pairings: stat.pairings, firstTry: stat.firstTry, firstTryRate: stat.pairings ? stat.firstTry / stat.pairings : 0,
+    avgWrong: stat.pairings ? stat.wrongChoices / stat.pairings : 0, audioUsed: stat.audioUsed,
+    sources: stat.sources, currentStarts: stat.currentStarts, olderStarts: stat.olderStarts
+  }));
+
+  const facts = [...factStats.values()].map(stat => {
+    const confusion = [...stat.offered.entries()].map(([factId, offered]) => {
+      const wrong = stat.wrong.get(factId) || 0;
+      const mapped = ESSAY_FACT_MAP.get(factId);
+      return {
+        factId, name: mapped?.fact?.name || factId, position: mapped?.fact?.position || '',
+        offered, wrong, rate: offered ? wrong / offered : 0
+      };
+    }).sort((a,b) => b.wrong - a.wrong || b.rate - a.rate || b.offered - a.offered);
+    return {
+      essayId: stat.essayId, essayTitle: stat.essayTitle, factId: stat.factId, label: stat.label, name: stat.name, position: stat.position,
+      learners: stat.learners.size, exposures: stat.exposures, firstTry: stat.firstTry,
+      firstTryRate: stat.exposures ? stat.firstTry / stat.exposures : 0,
+      avgWrong: stat.exposures ? stat.wrongTotal / stat.exposures : 0,
+      audioUsed: stat.audioUsed, currentExposures: stat.currentExposures, olderExposures: stat.olderExposures,
+      timeBuckets: [...stat.timeBuckets.entries()].filter(([bucket]) => bucket).map(([bucket,n]) => ({ bucket, n })),
+      mostConfusedWith: confusion[0] || null, confusion
+    };
+  });
+
+  const starts = rounds.filter(row => row.event_type === 'essay_round_start').length;
+  const completions = rounds.filter(row => row.event_type === 'essay_round_complete').length;
+  const perfectRounds = rounds.filter(row => row.event_type === 'essay_round_complete' && Number(row.perfect)).length;
+  const firstTryPairings = pairings.reduce((sum,row) => sum + (Number(row.first_try) ? 1 : 0), 0);
+  return jsonResponse({
+    generatedAt: new Date().toISOString(),
+    note: 'Essay analytics are practice diagnostics. Adaptive selection intentionally changes which essays and facts receive more exposure.',
+    overview: {
+      learners: overallLearners.size, starts, completions, completionRate: starts ? completions / starts : 0,
+      pairingExposures: pairings.length, firstTryPairings, firstTryRate: pairings.length ? firstTryPairings / pairings.length : 0,
+      perfectRounds, perfectRate: completions ? perfectRounds / completions : 0,
+      audioUsed: pairings.reduce((sum,row) => sum + (Number(row.audio_used) || 0), 0)
+    },
+    essays, facts
+  });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -145,9 +314,10 @@ export default {
       return cors ? new Response(null, { status: 204, headers: cors }) : new Response(null, { status: 403 });
     }
     if (request.method === 'POST' && url.pathname === '/api/events') return ingestEvents(request, env);
-    if (request.method === 'GET' && url.pathname === '/api/health') return jsonResponse({ ok: true, service: 'scp-study-analytics', version: 3 });
+    if (request.method === 'GET' && url.pathname === '/api/health') return jsonResponse({ ok: true, service: 'scp-study-analytics', version: 6 });
     if (request.method === 'GET' && url.pathname === '/api/options') return dashboardOptions(env);
     if (request.method === 'GET' && url.pathname === '/api/summary') return dashboardSummary(request, env);
+    if (request.method === 'GET' && url.pathname === '/api/essay-summary') return dashboardEssaySummary(request, env);
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/dashboard')) return dashboardResponse();
     return new Response('Not found', { status: 404, headers: { 'X-Robots-Tag': 'noindex, nofollow' } });
   }
