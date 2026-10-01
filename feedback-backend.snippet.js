@@ -99,6 +99,15 @@ async function ensureFeedbackTables(env) {
   await env.DB.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_unique_install_version ON feedback_reports(installation_id, content_type, content_id, content_hash)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_feedback_issues_status ON feedback_issues(status, last_report_at)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_feedback_revisions_content ON feedback_revisions(content_type, content_id, created_at)').run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS feedback_admin_actions (
+    action_id TEXT PRIMARY KEY,
+    content_type TEXT NOT NULL,
+    content_id TEXT NOT NULL,
+    command_json TEXT NOT NULL,
+    applied_at TEXT NOT NULL,
+    result_status TEXT,
+    result_note TEXT
+  )`).run();
   feedbackTablesReady = true;
 }
 
@@ -340,19 +349,18 @@ async function feedbackDetail(request, env) {
   });
 }
 
-async function updateFeedbackStatus(request, env) {
-  if (!sameOriginMutation(request)) return jsonResponse({ error: 'Same-origin request required' }, { status: 403 });
+async function applyFeedbackStatusChange(env, input, source = 'dashboard') {
   await ensureFeedbackTables(env);
-  let body;
-  try { body = await request.json(); } catch (_) { return jsonResponse({ error: 'Invalid JSON' }, { status: 400 }); }
-  const type = text(body?.contentType, 32);
-  const id = text(body?.contentId, 100);
-  const status = text(body?.status, 20);
-  const note = text(body?.resolutionNote, 1000);
-  const updatedWording = text(body?.updatedWording, 6000);
-  if (!FEEDBACK_TYPES.has(type) || !id || !FEEDBACK_STATUSES.has(status)) return jsonResponse({ error: 'Invalid status update' }, { status: 400 });
+  const type = text(input?.contentType, 32);
+  const id = text(input?.contentId, 100);
+  const status = text(input?.status, 20);
+  const note = text(input?.resolutionNote, 1000);
+  const updatedWording = text(input?.updatedWording, 6000);
+  if (!FEEDBACK_TYPES.has(type) || !id || !FEEDBACK_STATUSES.has(status)) {
+    throw new Error('Invalid status update');
+  }
   const issue = await env.DB.prepare('SELECT * FROM feedback_issues WHERE content_type=? AND content_id=?').bind(type,id).first();
-  if (!issue) return jsonResponse({ error: 'Issue not found' }, { status: 404 });
+  if (!issue) throw new Error('Issue not found');
   const now = new Date().toISOString();
   const resolvedHash = status === 'resolved'
     ? (updatedWording ? feedbackHash(updatedWording) : issue.last_content_hash)
@@ -371,12 +379,73 @@ async function updateFeedbackStatus(request, env) {
   await env.DB.prepare(`INSERT INTO feedback_revisions
     (content_type, content_id, source, content_hash, wording, app_version, note, created_at)
     VALUES (?,?,?,?,?,?,?,?)`).bind(
-    type, id, `status:${status}`,
+    type, id, source === 'dashboard' ? `status:${status}` : `${source}:${status}`,
     updatedWording ? feedbackHash(updatedWording) : null,
     updatedWording || null, null, note || `Status changed to ${status}`, now
   ).run();
 
-  return jsonResponse({ ok:true, status });
+  return { ok:true, status, contentType:type, contentId:id, appliedAt:now };
+}
+
+async function updateFeedbackStatus(request, env) {
+  if (!sameOriginMutation(request)) return jsonResponse({ error: 'Same-origin request required' }, { status: 403 });
+  let body;
+  try { body = await request.json(); } catch (_) { return jsonResponse({ error: 'Invalid JSON' }, { status: 400 }); }
+  try {
+    return jsonResponse(await applyFeedbackStatusChange(env, body, 'dashboard'));
+  } catch (err) {
+    return jsonResponse({ error: err?.message || 'Could not update feedback issue' }, { status: err?.message === 'Issue not found' ? 404 : 400 });
+  }
+}
+
+function normalizedAdminActions() {
+  const manifest = FEEDBACK_ADMIN_ACTIONS && typeof FEEDBACK_ADMIN_ACTIONS === 'object' ? FEEDBACK_ADMIN_ACTIONS : {};
+  const actions = Array.isArray(manifest.actions) ? manifest.actions : [];
+  return actions.map(raw => ({
+    actionId: text(raw?.actionId, 120),
+    contentType: text(raw?.contentType, 32),
+    contentId: text(raw?.contentId, 100),
+    status: text(raw?.status, 20),
+    resolutionNote: text(raw?.resolutionNote, 1000),
+    updatedWording: text(raw?.updatedWording, 6000),
+    approvedAt: text(raw?.approvedAt, 40),
+    approvalRef: text(raw?.approvalRef, 200)
+  })).filter(action => action.actionId && FEEDBACK_TYPES.has(action.contentType) && action.contentId && FEEDBACK_STATUSES.has(action.status));
+}
+
+async function applyFeedbackAdminActions(env) {
+  await ensureFeedbackTables(env);
+  const actions = normalizedAdminActions();
+  const results = [];
+  for (const action of actions) {
+    const existing = await env.DB.prepare('SELECT action_id, applied_at, result_status, result_note FROM feedback_admin_actions WHERE action_id=?')
+      .bind(action.actionId).first();
+    if (existing) {
+      results.push({ actionId:action.actionId, state:'already_applied', appliedAt:existing.applied_at, status:existing.result_status });
+      continue;
+    }
+    try {
+      const result = await applyFeedbackStatusChange(env, action, 'approved-manifest');
+      await env.DB.prepare(`INSERT INTO feedback_admin_actions
+        (action_id, content_type, content_id, command_json, applied_at, result_status, result_note)
+        VALUES (?,?,?,?,?,?,?)`).bind(
+        action.actionId, action.contentType, action.contentId, JSON.stringify(action), result.appliedAt,
+        result.status, action.resolutionNote || action.approvalRef || 'Approved via source-controlled manifest'
+      ).run();
+      results.push({ actionId:action.actionId, state:'applied', status:result.status, contentType:action.contentType, contentId:action.contentId });
+    } catch (err) {
+      results.push({ actionId:action.actionId, state:'pending', error:text(err?.message || 'Could not apply action', 240) });
+    }
+  }
+  return { ok:true, manifestVersion:Number(FEEDBACK_ADMIN_ACTIONS?.version)||1, actions:results };
+}
+
+async function feedbackAdminSync(env) {
+  const result = await applyFeedbackAdminActions(env);
+  const applied = result.actions.filter(x => x.state === 'applied').length;
+  const pending = result.actions.filter(x => x.state === 'pending').length;
+  const alreadyApplied = result.actions.filter(x => x.state === 'already_applied').length;
+  return jsonResponse({ ok:true, manifestVersion:result.manifestVersion, applied, pending, alreadyApplied });
 }
 
 function feedbackDetailPage() {
@@ -452,7 +521,12 @@ export default {
     if (url.pathname === '/api/feedback/issues' && request.method === 'GET') return feedbackIssues(request, env);
     if (url.pathname === '/api/feedback/detail' && request.method === 'GET') return feedbackDetail(request, env);
     if (url.pathname === '/api/feedback/status' && request.method === 'POST') return updateFeedbackStatus(request, env);
+    if (url.pathname === '/api/admin/feedback-sync' && request.method === 'GET') return feedbackAdminSync(env);
     if (url.pathname === '/feedback-detail' && request.method === 'GET') return feedbackDetailPage();
     return __BASE_WORKER.fetch(request, env);
+  },
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(applyFeedbackAdminActions(env));
+    if (typeof __BASE_WORKER.scheduled === 'function') return __BASE_WORKER.scheduled(controller, env, ctx);
   }
 };
