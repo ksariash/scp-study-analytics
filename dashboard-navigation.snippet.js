@@ -58,7 +58,7 @@ body[id="top"]{scroll-margin-top:0}
 .glossary-recent{margin-top:8px;color:var(--muted);font-size:.65rem;font-weight:750}
 .glossary-note{margin-top:10px}
 .feedback-controls{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
-.feedback-controls select{min-height:34px;padding:6px 8px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);font:inherit;font-size:.68rem;font-weight:750}
+.feedback-controls select,.feedback-controls input[type="search"]{min-height:34px;padding:6px 8px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);font:inherit;font-size:.68rem;font-weight:750}
 .feedback-resolved-toggle{display:flex;align-items:center;gap:5px;color:var(--muted);font-size:.66rem;font-weight:800;white-space:nowrap}
 .feedback-table-title{max-width:410px}
 .feedback-title-link{color:#264d94;font-weight:850;text-decoration:none}
@@ -85,7 +85,7 @@ body[id="top"]{scroll-margin-top:0}
   .feedback-cards{display:block}
   #feedbackIssues .desktop-table{display:none}
   .feedback-controls{width:100%}
-  .feedback-controls select{flex:1 1 130px}
+  .feedback-controls select,.feedback-controls input[type="search"]{flex:1 1 130px}
 }
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.scroll-control{transition:none}}
 </style>`;
@@ -94,6 +94,7 @@ body[id="top"]{scroll-margin-top:0}
     '<section class="section" id="content-feedback" style="margin-top:14px">' +
       '<div class="section-head"><div class="headcopy"><h2>Content feedback</h2><span>Flagged questions and essay pairings, grouped for tracking and resolution</span></div>' +
       '<div class="section-actions feedback-controls">' +
+        '<input id="feedbackSearchFilter" type="search" placeholder="Search topic or content" aria-label="Search feedback topics">' +
         '<select id="feedbackTypeFilter" aria-label="Feedback content type"><option value="">All content</option><option value="question">Questions</option><option value="essay_prompt">Essay questions</option><option value="essay_pairing">Essay pairings</option></select>' +
         '<select id="feedbackReasonFilter" aria-label="Feedback reason"><option value="">All reasons</option><option value="confusing">Confusing</option><option value="inaccurate">May be inaccurate</option><option value="wording">Wording / typo</option><option value="incomplete">Missing / incomplete</option><option value="other">Other</option></select>' +
         '<select id="feedbackStatusFilter" aria-label="Feedback status"><option value="">All unresolved</option><option value="new">New</option><option value="tracking">Tracking</option><option value="reopened">Reopened</option><option value="resolved">Resolved</option></select>' +
@@ -148,12 +149,13 @@ body[id="top"]{scroll-margin-top:0}
   const feedbackBehavior = `
 <script id="dashboardFeedbackScript">
 (() => {
+  const searchFilter = document.getElementById('feedbackSearchFilter');
   const typeFilter = document.getElementById('feedbackTypeFilter');
   const reasonFilter = document.getElementById('feedbackReasonFilter');
   const statusFilter = document.getElementById('feedbackStatusFilter');
   const showResolved = document.getElementById('feedbackShowResolved');
   const target = document.getElementById('feedbackIssues');
-  if (!typeFilter || !reasonFilter || !statusFilter || !showResolved || !target) return;
+  if (!searchFilter || !typeFilter || !reasonFilter || !statusFilter || !showResolved || !target) return;
 
   const escFeedback = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const typeLabel = value => ({ question:'Question', essay_prompt:'Essay question', essay_pairing:'Essay pairing' }[value] || value);
@@ -162,6 +164,7 @@ body[id="top"]{scroll-margin-top:0}
 
   function feedbackParams() {
     const p = new URLSearchParams();
+    if (searchFilter.value.trim()) p.set('search', searchFilter.value.trim());
     if (typeFilter.value) p.set('type', typeFilter.value);
     if (reasonFilter.value) p.set('reason', reasonFilter.value);
     if (statusFilter.value) p.set('status', statusFilter.value);
@@ -223,6 +226,8 @@ body[id="top"]{scroll-margin-top:0}
   }
 
   [typeFilter, reasonFilter, statusFilter, showResolved].forEach(el => el.addEventListener('change', loadFeedbackIssues));
+  let searchTimer = null;
+  searchFilter.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadFeedbackIssues, 180); });
   ['cohort','category','from','to'].forEach(id => document.getElementById(id)?.addEventListener('change', () => setTimeout(loadFeedbackIssues, 0)));
   document.getElementById('clearFilters')?.addEventListener('click', () => setTimeout(loadFeedbackIssues, 0));
   document.getElementById('refreshData')?.addEventListener('click', () => setTimeout(loadFeedbackIssues, 0));
