@@ -147,6 +147,11 @@ async function ingestFeedbackReport(request, env) {
     timezone: text(cf.timezone, 80), metroCode: text(cf.metroCode, 20), latitude: roundCoord(cf.latitude), longitude: roundCoord(cf.longitude)
   };
 
+  const priorIssue = await env.DB.prepare('SELECT status, resolved_content_hash FROM feedback_issues WHERE content_type=? AND content_id=?')
+    .bind(report.contentType, report.contentId).first();
+  const shouldAutoReopen = priorIssue?.status === 'resolved'
+    && String(priorIssue?.resolved_content_hash || '') !== String(report.contentHash || '');
+
   const insert = await env.DB.prepare(`INSERT OR IGNORE INTO feedback_reports (
     client_event_id, installation_id, cohort, app_version, client_ts, content_type, content_id, parent_id, title, category,
     wording, content_hash, reason, details, source, context_json, country, region, region_code, city, timezone, metro_code, latitude_rounded, longitude_rounded
@@ -196,6 +201,12 @@ async function ingestFeedbackReport(request, env) {
         (content_type, content_id, source, content_hash, wording, app_version, note, created_at)
         VALUES (?,?,'report',?,?,?,?,?)`)
         .bind(report.contentType, report.contentId, report.contentHash, report.wording, report.appVersion, 'Wording reported by a student', now).run();
+    }
+    if (shouldAutoReopen) {
+      await env.DB.prepare(`INSERT INTO feedback_revisions
+        (content_type, content_id, source, content_hash, wording, app_version, note, created_at)
+        VALUES (?,?,'status:reopened',?,?,?,?,?)`)
+        .bind(report.contentType, report.contentId, report.contentHash, report.wording, report.appVersion, 'Automatically reopened because feedback was submitted on changed wording', now).run();
     }
   }
 
