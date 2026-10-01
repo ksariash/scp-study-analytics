@@ -96,7 +96,8 @@ body[id="top"]{scroll-margin-top:0}
       '<div class="section-actions feedback-controls">' +
         '<select id="feedbackTypeFilter" aria-label="Feedback content type"><option value="">All content</option><option value="question">Questions</option><option value="essay_prompt">Essay questions</option><option value="essay_pairing">Essay pairings</option></select>' +
         '<select id="feedbackReasonFilter" aria-label="Feedback reason"><option value="">All reasons</option><option value="confusing">Confusing</option><option value="inaccurate">May be inaccurate</option><option value="wording">Wording / typo</option><option value="incomplete">Missing / incomplete</option><option value="other">Other</option></select>' +
-        '<label class="feedback-resolved-toggle"><input id="feedbackShowResolved" type="checkbox"> Show resolved</label>' +
+        '<select id="feedbackStatusFilter" aria-label="Feedback status"><option value="">All unresolved</option><option value="new">New</option><option value="tracking">Tracking</option><option value="reopened">Reopened</option><option value="resolved">Resolved</option></select>' +
+        '<label class="feedback-resolved-toggle"><input id="feedbackShowResolved" type="checkbox"> Include resolved</label>' +
       '</div></div><div id="feedbackIssues"><div class="feedback-empty">Loading feedback…</div></div>' +
     '</section>';
 
@@ -149,9 +150,10 @@ body[id="top"]{scroll-margin-top:0}
 (() => {
   const typeFilter = document.getElementById('feedbackTypeFilter');
   const reasonFilter = document.getElementById('feedbackReasonFilter');
+  const statusFilter = document.getElementById('feedbackStatusFilter');
   const showResolved = document.getElementById('feedbackShowResolved');
   const target = document.getElementById('feedbackIssues');
-  if (!typeFilter || !reasonFilter || !showResolved || !target) return;
+  if (!typeFilter || !reasonFilter || !statusFilter || !showResolved || !target) return;
 
   const escFeedback = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const typeLabel = value => ({ question:'Question', essay_prompt:'Essay question', essay_pairing:'Essay pairing' }[value] || value);
@@ -162,7 +164,8 @@ body[id="top"]{scroll-margin-top:0}
     const p = new URLSearchParams();
     if (typeFilter.value) p.set('type', typeFilter.value);
     if (reasonFilter.value) p.set('reason', reasonFilter.value);
-    if (showResolved.checked) p.set('includeResolved', '1');
+    if (statusFilter.value) p.set('status', statusFilter.value);
+    if (showResolved.checked || statusFilter.value === 'resolved') p.set('includeResolved', '1');
     [['cohort','cohort'],['category','category'],['from','from'],['to','to']].forEach(([id,key]) => {
       const el = document.getElementById(id);
       if (el?.value) p.set(key, el.value);
@@ -219,7 +222,7 @@ body[id="top"]{scroll-margin-top:0}
     }
   }
 
-  [typeFilter, reasonFilter, showResolved].forEach(el => el.addEventListener('change', loadFeedbackIssues));
+  [typeFilter, reasonFilter, statusFilter, showResolved].forEach(el => el.addEventListener('change', loadFeedbackIssues));
   ['cohort','category','from','to'].forEach(id => document.getElementById(id)?.addEventListener('change', () => setTimeout(loadFeedbackIssues, 0)));
   document.getElementById('clearFilters')?.addEventListener('click', () => setTimeout(loadFeedbackIssues, 0));
   document.getElementById('refreshData')?.addEventListener('click', () => setTimeout(loadFeedbackIssues, 0));
