@@ -149,7 +149,8 @@ async function ingestFeedbackReport(request, env) {
 
   const priorIssue = await env.DB.prepare('SELECT status, resolved_content_hash FROM feedback_issues WHERE content_type=? AND content_id=?')
     .bind(report.contentType, report.contentId).first();
-  const shouldAutoReopen = priorIssue?.status === 'resolved'
+  const shouldAutoReopen = priorIssue?.status === 'resolved';
+  const wordingChangedSinceResolution = shouldAutoReopen
     && String(priorIssue?.resolved_content_hash || '') !== String(report.contentHash || '');
 
   const insert = await env.DB.prepare(`INSERT OR IGNORE INTO feedback_reports (
@@ -175,15 +176,11 @@ async function ingestFeedbackReport(request, env) {
       last_report_at=excluded.last_report_at,
       report_count=feedback_issues.report_count + 1,
       status=CASE
-        WHEN feedback_issues.status='resolved'
-          AND COALESCE(feedback_issues.resolved_content_hash,'') <> COALESCE(excluded.last_content_hash,'')
-        THEN 'reopened'
+        WHEN feedback_issues.status='resolved' THEN 'reopened'
         ELSE feedback_issues.status
       END,
       resolved_at=CASE
-        WHEN feedback_issues.status='resolved'
-          AND COALESCE(feedback_issues.resolved_content_hash,'') <> COALESCE(excluded.last_content_hash,'')
-        THEN NULL
+        WHEN feedback_issues.status='resolved' THEN NULL
         ELSE feedback_issues.resolved_at
       END,
       last_content_hash=excluded.last_content_hash,
@@ -206,7 +203,13 @@ async function ingestFeedbackReport(request, env) {
       await env.DB.prepare(`INSERT INTO feedback_revisions
         (content_type, content_id, source, content_hash, wording, app_version, note, created_at)
         VALUES (?,?,'status:reopened',?,?,?,?,?)`)
-        .bind(report.contentType, report.contentId, report.contentHash, report.wording, report.appVersion, 'Automatically reopened because feedback was submitted on changed wording', now).run();
+        .bind(
+          report.contentType, report.contentId, report.contentHash, report.wording, report.appVersion,
+          wordingChangedSinceResolution
+            ? 'Automatically reopened because feedback was submitted on changed wording'
+            : 'Automatically reopened because new feedback arrived after resolution',
+          now
+        ).run();
     }
   }
 
