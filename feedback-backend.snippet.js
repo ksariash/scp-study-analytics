@@ -209,6 +209,7 @@ function feedbackIssueFilters(url) {
   const reason = text(url.searchParams.get('reason'), 32);
   const cohort = text(url.searchParams.get('cohort'), 100);
   const category = text(url.searchParams.get('category'), 180);
+  const search = text(url.searchParams.get('search'), 120);
   const from = text(url.searchParams.get('from'), 10);
   const to = text(url.searchParams.get('to'), 10);
   const includeResolved = url.searchParams.get('includeResolved') === '1';
@@ -219,6 +220,11 @@ function feedbackIssueFilters(url) {
   if (reason && FEEDBACK_REASONS.has(reason)) { clauses.push('r.reason=?'); params.push(reason); }
   if (cohort) { clauses.push('r.cohort=?'); params.push(cohort); }
   if (category) { clauses.push('i.category=?'); params.push(category); }
+  if (search) {
+    clauses.push('(LOWER(COALESCE(i.title,\'\')) LIKE ? OR LOWER(COALESCE(i.category,\'\')) LIKE ? OR LOWER(i.content_id) LIKE ?)');
+    const like = `%${search.toLowerCase()}%`;
+    params.push(like, like, like);
+  }
   if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) { clauses.push('r.received_at>=?'); params.push(`${from}T00:00:00.000Z`); }
   if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) {
     const d = new Date(`${to}T00:00:00.000Z`); d.setUTCDate(d.getUTCDate()+1);
