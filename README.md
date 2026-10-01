@@ -25,3 +25,14 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 - The detail window shows anonymous student comments, exact reported wording, context, wording/status history, and before/after diffs.
 - Tracking and resolution actions can include a note and optional updated wording; any new feedback after resolution automatically reopens the issue, with changed wording called out in the history.
 - Duplicate reports from the same anonymous installation for the same unchanged content version are rejected server-side.
+
+
+## Release 5
+
+- Added a source-controlled admin bridge for approved Content Feedback resolutions.
+- Approved actions live in `feedback-admin-actions.json`; only actions committed to the deployed `main` branch can change feedback status through the bridge.
+- The Worker applies new approved actions idempotently and records each applied action in D1.
+- A five-minute Cron Trigger processes newly deployed approved actions automatically.
+- `GET /api/admin/feedback-sync` can trigger the same idempotent sync immediately; it accepts no mutation payload and can only execute actions already embedded in the deployed manifest.
+- Resolution notes and updated wording are written into the existing feedback revision timeline, so the dashboard continues to show how wording changed in response to feedback.
+- This avoids storing a reusable admin bearer token in the public repository while still allowing ChatGPT to prepare approved changes through GitHub.
