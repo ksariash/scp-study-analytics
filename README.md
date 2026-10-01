@@ -23,5 +23,5 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 - Resolved issues are hidden from the dashboard by default and can be included with a toggle or status filter.
 - Added a Content Feedback dashboard section with report counts, unique learner counts, reason breakdowns, filters, and links to a dedicated detail window.
 - The detail window shows anonymous student comments, exact reported wording, context, wording/status history, and before/after diffs.
-- Tracking and resolution actions can include a note and optional updated wording; new feedback on a changed content hash automatically reopens a resolved issue.
+- Tracking and resolution actions can include a note and optional updated wording; any new feedback after resolution automatically reopens the issue, with changed wording called out in the history.
 - Duplicate reports from the same anonymous installation for the same unchanged content version are rejected server-side.
