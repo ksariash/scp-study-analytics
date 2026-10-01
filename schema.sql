@@ -64,3 +64,72 @@ CREATE INDEX IF NOT EXISTS idx_glossary_cohort ON glossary_events(cohort);
 CREATE INDEX IF NOT EXISTS idx_glossary_term ON glossary_events(term_id);
 CREATE INDEX IF NOT EXISTS idx_glossary_location ON glossary_events(country, region, city);
 CREATE INDEX IF NOT EXISTS idx_glossary_category ON glossary_events(category);
+
+
+CREATE TABLE IF NOT EXISTS feedback_reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_event_id TEXT NOT NULL UNIQUE,
+  installation_id TEXT NOT NULL,
+  cohort TEXT NOT NULL,
+  app_version TEXT,
+  client_ts TEXT,
+  received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  content_type TEXT NOT NULL,
+  content_id TEXT NOT NULL,
+  parent_id TEXT,
+  title TEXT,
+  category TEXT,
+  wording TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  details TEXT,
+  source TEXT,
+  context_json TEXT,
+  country TEXT,
+  region TEXT,
+  region_code TEXT,
+  city TEXT,
+  timezone TEXT,
+  metro_code TEXT,
+  latitude_rounded REAL,
+  longitude_rounded REAL
+);
+
+CREATE TABLE IF NOT EXISTS feedback_issues (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  content_type TEXT NOT NULL,
+  content_id TEXT NOT NULL,
+  parent_id TEXT,
+  title TEXT,
+  category TEXT,
+  status TEXT NOT NULL DEFAULT 'new',
+  first_report_at TEXT NOT NULL,
+  last_report_at TEXT NOT NULL,
+  report_count INTEGER NOT NULL DEFAULT 1,
+  last_content_hash TEXT,
+  last_wording TEXT,
+  resolved_at TEXT,
+  resolution_note TEXT,
+  resolved_content_hash TEXT,
+  updated_wording TEXT,
+  updated_at TEXT NOT NULL,
+  UNIQUE(content_type, content_id)
+);
+
+CREATE TABLE IF NOT EXISTS feedback_revisions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  content_type TEXT NOT NULL,
+  content_id TEXT NOT NULL,
+  source TEXT NOT NULL,
+  content_hash TEXT,
+  wording TEXT,
+  app_version TEXT,
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_reports_content ON feedback_reports(content_type, content_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_reports_received ON feedback_reports(received_at);
+CREATE INDEX IF NOT EXISTS idx_feedback_reports_reason ON feedback_reports(reason);
+CREATE INDEX IF NOT EXISTS idx_feedback_issues_status ON feedback_issues(status, last_report_at);
+CREATE INDEX IF NOT EXISTS idx_feedback_revisions_content ON feedback_revisions(content_type, content_id, created_at);
