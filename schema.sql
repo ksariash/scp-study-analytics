@@ -134,3 +134,14 @@ CREATE INDEX IF NOT EXISTS idx_feedback_reports_reason ON feedback_reports(reaso
 CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_unique_install_version ON feedback_reports(installation_id, content_type, content_id, content_hash);
 CREATE INDEX IF NOT EXISTS idx_feedback_issues_status ON feedback_issues(status, last_report_at);
 CREATE INDEX IF NOT EXISTS idx_feedback_revisions_content ON feedback_revisions(content_type, content_id, created_at);
+
+
+CREATE TABLE IF NOT EXISTS feedback_admin_actions (
+  action_id TEXT PRIMARY KEY,
+  content_type TEXT NOT NULL,
+  content_id TEXT NOT NULL,
+  command_json TEXT NOT NULL,
+  applied_at TEXT NOT NULL,
+  result_status TEXT,
+  result_note TEXT
+);
