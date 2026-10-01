@@ -316,7 +316,7 @@ body[id="top"]{scroll-margin-top:0}
 
   function params() {
     const p = new URLSearchParams();
-    ['chaburaRegion','chabura','cohort','country','region','city','from','to'].forEach(id => {
+    ['cohort','chaburaRegion','chabura','country','region','city','from','to'].forEach(id => {
       const el = document.getElementById(id);
       if (el?.value) p.set(id, el.value);
     });
@@ -454,9 +454,9 @@ body[id="top"]{scroll-margin-top:0}
     '  </section>';
   const reorderedFilters =
     '<section class="filters" id="dashboard-filters" aria-label="Dashboard filters">\n' +
+    '    <div class="field cohort"><label for="cohort">Cohort</label><select id="cohort" required><option value="" disabled>Select cohort…</option></select></div>\n' +
     '    <div class="field chabura-region"><label for="chaburaRegion">Chabura Location</label><select id="chaburaRegion"><option value="">All chabura locations</option></select></div>\n' +
     '    <div class="field chabura"><label for="chabura">Chabura Rav</label><select id="chabura"><option value="">All chabura rabbanim</option></select></div>\n' +
-    '    <div class="field cohort"><label for="cohort">Cohort</label><select id="cohort"><option value="">All cohorts</option></select></div>\n' +
     '    <div class="field category"><label for="category">Topic</label><select id="category"><option value="">All topics</option></select></div>\n' +
     '    <div class="field mode"><label for="mode">Mode</label><select id="mode"><option value="">Study + Test</option><option value="study">Study</option><option value="test">Practice test</option></select></div>\n' +
     '    <div class="field country"><label for="country">Country</label><select id="country"><option value="">All countries</option></select></div>\n' +
@@ -470,12 +470,12 @@ body[id="top"]{scroll-margin-top:0}
   return html
     .replace('<body>', '<body id="top">')
     .replace(originalFilters, reorderedFilters)
-    .replace("const filters=['cohort','country','region','city','category','mode','from','to'];", "const filters=['chaburaRegion','chabura','cohort','category','mode','country','region','city','from','to'];")
+    .replace("const filters=['cohort','country','region','city','category','mode','from','to'];", "const filters=['cohort','chaburaRegion','chabura','category','mode','country','region','city','from','to'];")
     .replace("function query(){", "function cascadeChabura(){if(!options)return;const location=$('chaburaRegion').value,rav=$('chabura').value;const profiles=options.chaburaProfiles||[];const ravs=[...new Set(profiles.filter(x=>!location||x.location===location).map(x=>x.rav).filter(Boolean))].sort();fillSelect('chabura',ravs);if(rav&&ravs.includes(rav))$('chabura').value=rav};function query(){")
     .replace("function applyUrlFilters(){const p=new URLSearchParams(location.search);filters.forEach(id=>{const v=p.get(id);if(v!==null)$(id).value=v});cascadeLocation();", "function applyUrlFilters(){const p=new URLSearchParams(location.search);filters.forEach(id=>{const v=p.get(id);if(v!==null)$(id).value=v});cascadeChabura();cascadeLocation();")
-    .replace("async function init(){try{options=await getJSON('/api/options');fillSelect('cohort',options.cohorts||[]);fillSelect('country'", "async function init(){try{options=await getJSON('/api/options');fillSelect('chaburaRegion',options.chaburaLocations||[]);cascadeChabura();fillSelect('cohort',options.cohorts||[]);fillSelect('country'")
+    .replace("async function init(){try{options=await getJSON('/api/options');fillSelect('cohort',options.cohorts||[]);fillSelect('country'", "async function init(){try{options=await getJSON('/api/options');fillSelect('chaburaRegion',options.chaburaLocations||[]);cascadeChabura();fillSelect('cohort',options.cohorts||[]);const cohortValues=options.cohorts||[];const requestedCohort=new URLSearchParams(location.search).get('cohort');if(requestedCohort&&cohortValues.includes(requestedCohort))$('cohort').value=requestedCohort;else if(cohortValues.includes(\"Nat Bar Nat & Stam Ye'enam - Summer 26\"))$('cohort').value=\"Nat Bar Nat & Stam Ye'enam - Summer 26\";else if(cohortValues.length)$('cohort').value=cohortValues[0];fillSelect('country'")
     .replace("filters.forEach(id=>$(id).addEventListener('change',()=>{if(id==='country'||id==='region')cascadeLocation();loadSummary()}));", "filters.forEach(id=>$(id).addEventListener('change',()=>{if(id==='chaburaRegion')cascadeChabura();if(id==='country'||id==='region')cascadeLocation();loadSummary()}));")
-    .replace("$('clearFilters').addEventListener('click',()=>{filters.forEach(id=>$(id).value='');cascadeLocation();loadSummary()});", "$('clearFilters').addEventListener('click',()=>{filters.forEach(id=>$(id).value='');cascadeChabura();cascadeLocation();loadSummary()});")
+    .replace("$('clearFilters').addEventListener('click',()=>{filters.forEach(id=>$(id).value='');cascadeLocation();loadSummary()});", "$('clearFilters').addEventListener('click',()=>{filters.filter(id=>id!=='cohort').forEach(id=>$(id).value='');cascadeChabura();cascadeLocation();loadSummary()});")
     .replace('<h2>Needs review</h2>', '<h2 id="needs-review">Needs review</h2>')
     .replace('<h2>Topic heat map</h2>', '<h2 id="heat-map">Topic heat map</h2>')
     .replace('<h2>Topics needing review</h2>', '<h2 id="topics-review">Topics needing review</h2>')

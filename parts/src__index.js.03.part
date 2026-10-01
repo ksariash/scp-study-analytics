@@ -317,7 +317,7 @@ export default {
       return cors ? new Response(null, { status: 204, headers: cors }) : new Response(null, { status: 403 });
     }
     if (request.method === 'POST' && url.pathname === '/api/events') return ingestEvents(request, env);
-    if (request.method === 'GET' && url.pathname === '/api/health') return jsonResponse({ ok: true, service: 'scp-study-analytics', version: 11 });
+    if (request.method === 'GET' && url.pathname === '/api/health') return jsonResponse({ ok: true, service: 'scp-study-analytics', version: 12 });
     if (request.method === 'GET' && url.pathname === '/api/options') return dashboardOptions(env);
     if (request.method === 'GET' && url.pathname === '/api/summary') return dashboardSummary(request, env);
     if (request.method === 'GET' && url.pathname === '/api/essay-summary') return dashboardEssaySummary(request, env);

@@ -66,3 +66,10 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 ## Release 11
 
 - Accepts and reports two additional learner feedback reasons: incorrect notes connection and incorrect audio connection.
+
+
+## Release 12
+
+- Makes Cohort the first and mandatory dashboard dimension. The dashboard always selects a specific cohort; “All cohorts” is removed because cross-cohort question/topic diagnostics are not comparable.
+- Clearing filters preserves the selected cohort.
+- This is the analytics-side foundation for the Study app's cohort package migration.
