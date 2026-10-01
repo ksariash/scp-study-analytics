@@ -108,6 +108,7 @@ async function ensureFeedbackTables(env) {
     result_status TEXT,
     result_note TEXT
   )`).run();
+  await env.DB.prepare('UPDATE feedback_reports SET cohort=? WHERE cohort=?').bind(CURRENT_COHORT, LEGACY_COHORT).run();
   feedbackTablesReady = true;
 }
 
@@ -115,7 +116,7 @@ function normalizeFeedbackReport(raw) {
   if (!raw || typeof raw !== 'object') throw new Error('Invalid feedback');
   const eventId = text(raw.eventId, 100);
   const installationId = text(raw.installationId, 100);
-  const cohort = text(raw.cohort, 100);
+  const cohort = normalizeCohort(raw.cohort);
   const appVersion = text(raw.appVersion, 32);
   const contentType = text(raw.contentType, 32);
   const contentId = text(raw.contentId, 100);
