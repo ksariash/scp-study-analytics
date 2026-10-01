@@ -50,3 +50,9 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 - Fixes the chabura schema migration order: existing D1 tables are altered before indexes are created on the new chabura columns, preventing dashboard/API 500s on upgraded databases.
 - Splits the dashboard chabura filter into Chabura Location and Chabura Rav, with the Rav list cascading from the selected location.
 - Reorders filters to Chabura Location, Chabura Rav, Cohort, Topic, Mode, Country, Region, City, From, Through.
+
+
+## Release 9
+
+- Replaces the wide Essay Performance table with responsive cards so essay analytics stay within the viewport on phones and narrow windows.
+- Each essay card shows learners, rounds, completion, first-try accuracy, perfect-round rate, and retries without horizontal overflow.

@@ -74,7 +74,14 @@ body[id="top"]{scroll-margin-top:0}
 .essay-analytics-overview{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px;margin-bottom:14px}
 .essay-analytics-card{padding:11px;border:1px solid #e4eaf3;border-radius:11px;background:#fbfcfe}
 .essay-analytics-card b{display:block;font-size:1.2rem}.essay-analytics-card span{display:block;margin-top:2px;color:var(--muted);font-size:.61rem;font-weight:750}
-.essay-subsection h3{margin:0 0 3px;font-size:.8rem}.essay-subsection .subcopy{display:block;margin-bottom:8px;color:var(--muted);font-size:.63rem}
+.essay-performance-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;min-width:0}
+.essay-performance-card{min-width:0;padding:11px;border:1px solid #e2e9f2;border-radius:12px;background:#fbfcfe}
+.essay-performance-card-title{font-size:.75rem;font-weight:900;line-height:1.35;color:var(--ink);overflow-wrap:anywhere}
+.essay-performance-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:9px}
+.essay-performance-metric{min-width:0;padding:7px;border-radius:9px;background:#fff;border:1px solid #edf1f6}
+.essay-performance-metric b{display:block;font-size:.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.essay-performance-metric span{display:block;margin-top:2px;color:var(--muted);font-size:.55rem;font-weight:750}
+.essay-subsection{min-width:0}.essay-subsection h3{margin:0 0 3px;font-size:.8rem}.essay-subsection .subcopy{display:block;margin-bottom:8px;color:var(--muted);font-size:.63rem}
 .essay-fact-btn{appearance:none;border:0;background:none;padding:0;color:#274d9a;font:inherit;font-weight:850;text-align:left;cursor:pointer}.essay-fact-btn:hover{text-decoration:underline}
 .essay-needs-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.essay-need{border:1px solid #e3e9f2;border-radius:10px;background:#fbfcfe;padding:9px;text-align:left;color:inherit;cursor:pointer}
 .essay-need strong{display:block;font-size:.72rem;line-height:1.35}.essay-need span{display:block;margin-top:4px;color:var(--muted);font-size:.61rem}.essay-need b{color:var(--bad)}
@@ -87,7 +94,7 @@ body[id="top"]{scroll-margin-top:0}
 #dashboard-filters{grid-template-columns:repeat(5,minmax(130px,1fr))}
 #dashboard-filters .clear{grid-column:1 / -1}
 @media(max-width:1100px){#dashboard-filters{grid-template-columns:repeat(4,minmax(120px,1fr))}}
-@media(max-width:900px){.essay-analytics-overview{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:900px){.essay-analytics-overview{grid-template-columns:repeat(3,1fr)}.essay-performance-cards{grid-template-columns:1fr}}
 
 .jump-menu-title{padding:5px 7px 7px;color:#748198;font-size:.61rem;font-weight:900;text-transform:uppercase;letter-spacing:.055em}
 .jump-menu a{display:block;padding:9px 10px;border-radius:9px}
@@ -106,6 +113,7 @@ body[id="top"]{scroll-margin-top:0}
   .feedback-controls{width:100%}
   .feedback-controls select,.feedback-controls input[type="search"]{flex:1 1 130px}
   .essay-analytics-overview{grid-template-columns:repeat(2,1fr)}
+  .essay-performance-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
   #dashboard-filters{grid-template-columns:1fr 1fr}
   #dashboard-filters .chabura-region{grid-column:1}
   #dashboard-filters .chabura{grid-column:2}
@@ -331,9 +339,20 @@ body[id="top"]{scroll-margin-top:0}
   function renderPerformance(essays) {
     const used = (essays || []).filter(e => Number(e.starts) || Number(e.pairings));
     if (!used.length) { performanceEl.innerHTML = '<div class="feedback-empty">No essay-practice data for these filters yet.</div>'; return; }
-    performanceEl.innerHTML = '<div class="tablewrap"><table><thead><tr><th>Essay</th><th class="num">Learners</th><th class="num">Rounds</th><th class="num">Completion</th><th class="num">First try</th><th class="num">Perfect</th><th class="num">Retries</th></tr></thead><tbody>' +
-      used.map(e => '<tr><td><strong>' + esc(e.title) + '</strong></td><td class="num">' + Number(e.learners||0) + '</td><td class="num">' + Number(e.completions||0) + '/' + Number(e.starts||0) + '</td><td class="num">' + pct(e.completionRate||0) + '</td><td class="num">' + pct(e.firstTryRate||0) + '</td><td class="num">' + pct(e.perfectRate||0) + '</td><td class="num">' + Number(e.sources?.retry||0) + '</td></tr>').join('') +
-      '</tbody></table></div>';
+    const metric = (value, label) => '<div class="essay-performance-metric"><b>' + esc(value) + '</b><span>' + esc(label) + '</span></div>';
+    performanceEl.innerHTML = '<div class="essay-performance-cards">' + used.map(e =>
+      '<article class="essay-performance-card">' +
+        '<div class="essay-performance-card-title">' + esc(e.title) + '</div>' +
+        '<div class="essay-performance-metrics">' +
+          metric(Number(e.learners||0), 'Learners') +
+          metric(Number(e.completions||0) + ' / ' + Number(e.starts||0), 'Rounds') +
+          metric(pct(e.completionRate||0), 'Completion') +
+          metric(pct(e.firstTryRate||0), 'First try') +
+          metric(pct(e.perfectRate||0), 'Perfect') +
+          metric(Number(e.sources?.retry||0), 'Retries') +
+        '</div>' +
+      '</article>'
+    ).join('') + '</div>';
   }
 
   function factLabel(f) {
