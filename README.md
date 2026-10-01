@@ -73,3 +73,11 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 - Makes Cohort the first and mandatory dashboard dimension. The dashboard always selects a specific cohort; “All cohorts” is removed because cross-cohort question/topic diagnostics are not comparable.
 - Clearing filters preserves the selected cohort.
 - This is the analytics-side foundation for the Study app's cohort package migration.
+
+
+## Release 13
+
+- Adds a source-controlled analytics cohort registry and rejects events/feedback for unconfigured cohorts instead of interpreting them through the current cohort catalog.
+- Makes the summary and essay-summary APIs require a supported cohort, matching the mandatory dashboard cohort selector.
+- Returns configured cohorts from the options API even before a cohort has activity.
+- Adds LLM maintenance and multi-cohort analytics guides, including an explicit gate that feedback issue identity must become cohort-scoped before a second cohort is enabled.

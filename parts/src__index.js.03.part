@@ -186,6 +186,12 @@ function parseIdArray(value) {
 async function dashboardEssaySummary(request, env) {
   await ensureChaburaStorage(env);
   const url = new URL(request.url);
+  let catalog;
+  try { catalog = catalogForCohort(url.searchParams.get('cohort')); }
+  catch (error) { return jsonResponse({ error: error.message === 'Unsupported cohort' ? 'Select a supported cohort' : error.message }, { status: 400 }); }
+  const essayCatalog = catalog.essays;
+  const essayMap = catalog.essayMap;
+  const essayFactMap = catalog.essayFactMap;
   const filter = essayAnalyticsFilter(url);
   const [roundResult, pairingResult] = await Promise.all([
     stmt(env, `SELECT installation_id, event_type, round_id, session_id, essay_id, source, attempt_in_round, total_facts,
@@ -199,7 +205,7 @@ async function dashboardEssaySummary(request, env) {
   const pairings = resultsOf(pairingResult);
   const overallLearners = new Set();
 
-  const essayStats = new Map(ESSAY_CATALOG.map(essay => [String(essay.id), {
+  const essayStats = new Map(essayCatalog.map(essay => [String(essay.id), {
     essayId: String(essay.id), title: essay.title, learners: new Set(), starts: 0, completions: 0, perfect: 0,
     pairings: 0, firstTry: 0, wrongChoices: 0, audioUsed: 0,
     sources: { adaptive: 0, library: 0, retry: 0, next: 0 },
@@ -209,7 +215,7 @@ async function dashboardEssaySummary(request, env) {
     const stat = essayStats.get(String(row.essay_id));
     if (!stat) continue;
     if (row.installation_id) { stat.learners.add(String(row.installation_id)); overallLearners.add(String(row.installation_id)); }
-    const essay = ESSAY_MAP.get(String(row.essay_id));
+    const essay = essayMap.get(String(row.essay_id));
     const isCurrent = essay && row.essay_content_hash === currentEssayHash(essay);
     if (row.event_type === 'essay_round_start') {
       stat.starts += 1;
@@ -222,7 +228,7 @@ async function dashboardEssaySummary(request, env) {
   }
 
   const factStats = new Map();
-  for (const essay of ESSAY_CATALOG) {
+  for (const essay of essayCatalog) {
     for (const fact of essay.facts || []) {
       factStats.set(String(fact.id), {
         essayId: String(essay.id), essayTitle: essay.title, factId: String(fact.id), label: fact.label,
@@ -252,7 +258,7 @@ async function dashboardEssaySummary(request, env) {
     const presented = parseIdArray(row.presented_choice_ids_json);
     stat.wrongTotal += wrong.length;
     essayStat.wrongChoices += wrong.length;
-    const current = ESSAY_FACT_MAP.get(String(row.fact_id));
+    const current = essayFactMap.get(String(row.fact_id));
     if (current && row.fact_content_hash === currentFactHash(current.fact)) stat.currentExposures += 1;
     else stat.olderExposures += 1;
     stat.timeBuckets.set(String(row.response_time_bucket || ''), (stat.timeBuckets.get(String(row.response_time_bucket || '')) || 0) + 1);
@@ -275,7 +281,7 @@ async function dashboardEssaySummary(request, env) {
   const facts = [...factStats.values()].map(stat => {
     const confusion = [...stat.offered.entries()].map(([factId, offered]) => {
       const wrong = stat.wrong.get(factId) || 0;
-      const mapped = ESSAY_FACT_MAP.get(factId);
+      const mapped = essayFactMap.get(factId);
       return {
         factId, name: mapped?.fact?.name || factId, position: mapped?.fact?.position || '',
         offered, wrong, rate: offered ? wrong / offered : 0
@@ -317,7 +323,7 @@ export default {
       return cors ? new Response(null, { status: 204, headers: cors }) : new Response(null, { status: 403 });
     }
     if (request.method === 'POST' && url.pathname === '/api/events') return ingestEvents(request, env);
-    if (request.method === 'GET' && url.pathname === '/api/health') return jsonResponse({ ok: true, service: 'scp-study-analytics', version: 12 });
+    if (request.method === 'GET' && url.pathname === '/api/health') return jsonResponse({ ok: true, service: 'scp-study-analytics', version: 13 });
     if (request.method === 'GET' && url.pathname === '/api/options') return dashboardOptions(env);
     if (request.method === 'GET' && url.pathname === '/api/summary') return dashboardSummary(request, env);
     if (request.method === 'GET' && url.pathname === '/api/essay-summary') return dashboardEssaySummary(request, env);

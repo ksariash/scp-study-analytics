@@ -104,13 +104,17 @@ async function dashboardOptions(env) {
     location: row.chabura_region,
     rav: row.chabura
   }));
+  const configured = (ANALYTICS_COHORT_REGISTRY?.cohorts || []).map(cohort => String(cohort.analyticsKey || '')).filter(Boolean);
+  const observed = resultsOf(cohorts).map(x => x.cohort).filter(Boolean);
   return jsonResponse({
-    cohorts: resultsOf(cohorts).map(x => x.cohort),
+    cohorts: [...new Set([...configured, ...observed])],
+    configuredCohorts: ANALYTICS_COHORT_REGISTRY?.cohorts || [],
     chaburaLocations: [...new Set(profiles.map(x => x.location).filter(Boolean))],
     chaburaProfiles: profiles,
     chaburos: [...new Set(profiles.map(x => x.rav).filter(Boolean))],
     locations: resultsOf(locations),
-    categories: [...new Set(QUESTION_CATALOG.map(q => q.category))]
+    categories: [...new Set(QUESTION_CATALOG.map(q => q.category))],
+    categoriesByCohort: { [CURRENT_COHORT]: [...new Set(QUESTION_CATALOG.map(q => q.category))] }
   });
 }
 
@@ -121,6 +125,11 @@ function combineRows(primary, secondary, key = 'category') {
 
 async function dashboardSummary(request, env) {
   const url = new URL(request.url);
+  let catalog;
+  try { catalog = catalogForCohort(url.searchParams.get('cohort')); }
+  catch (error) { return jsonResponse({ error: error.message === 'Unsupported cohort' ? 'Select a supported cohort' : error.message }, { status: 400 }); }
+  const questionMap = catalog.questionMap;
+  const questionCatalog = catalog.questions;
   const { where, params } = queryFilter(url);
   await ensureChaburaStorage(env);
   const baseOverview = stmt(env, `SELECT COUNT(*) submissions, COUNT(DISTINCT installation_id) learners,

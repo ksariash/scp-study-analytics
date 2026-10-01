@@ -117,6 +117,7 @@ function normalizeFeedbackReport(raw) {
   const eventId = text(raw.eventId, 100);
   const installationId = text(raw.installationId, 100);
   const cohort = normalizeCohort(raw.cohort);
+  catalogForCohort(cohort);
   const appVersion = text(raw.appVersion, 32);
   const contentType = text(raw.contentType, 32);
   const contentId = text(raw.contentId, 100);

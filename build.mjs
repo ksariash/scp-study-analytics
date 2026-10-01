@@ -11,6 +11,21 @@ const targets = [
 const dashboardEnhancement = await readFile("dashboard-navigation.snippet.js", "utf8");
 const feedbackBackend = await readFile("feedback-backend.snippet.js", "utf8");
 const feedbackAdminActions = await readFile("feedback-admin-actions.json", "utf8");
+const analyticsCohortRegistry = JSON.parse(await readFile("analytics-cohorts.json", "utf8"));
+
+if (!Array.isArray(analyticsCohortRegistry.cohorts) || !analyticsCohortRegistry.cohorts.length) {
+  throw new Error("analytics-cohorts.json must contain at least one cohort.");
+}
+const cohortKeys = analyticsCohortRegistry.cohorts.map(cohort => String(cohort.analyticsKey || ""));
+if (cohortKeys.some(key => !key) || new Set(cohortKeys).size !== cohortKeys.length) {
+  throw new Error("analytics-cohorts.json contains a blank or duplicate analyticsKey.");
+}
+if (!cohortKeys.includes(String(analyticsCohortRegistry.defaultAnalyticsKey || ""))) {
+  throw new Error("analytics-cohorts.json defaultAnalyticsKey must identify a configured cohort.");
+}
+if (analyticsCohortRegistry.cohorts.length > 1 && analyticsCohortRegistry.cohorts.some(cohort => cohort.catalogMode === "current-root-catalog")) {
+  throw new Error("A second cohort requires cohort-specific analytics catalogs before it can be registered.");
+}
 
 await mkdir("src", { recursive: true });
 for (const [target, prefix] of targets) {
@@ -27,6 +42,9 @@ for (const [target, prefix] of targets) {
     const markerIndex = source.lastIndexOf(marker);
     if (markerIndex < 0) throw new Error("Unexpected Worker source format");
     source = source.slice(0, markerIndex) + "const __BASE_WORKER = {" + source.slice(markerIndex + marker.length);
+    const registryMarker = "const ANALYTICS_COHORT_REGISTRY = null;";
+    if (!source.includes(registryMarker)) throw new Error("Analytics cohort registry marker missing from Worker source");
+    source = source.replace(registryMarker, "const ANALYTICS_COHORT_REGISTRY = " + JSON.stringify(analyticsCohortRegistry) + ";");
     source += "\nconst FEEDBACK_ADMIN_ACTIONS = " + feedbackAdminActions.trim() + ";\n" + feedbackBackend;
   }
   if (target === "src/dashboard.js") {

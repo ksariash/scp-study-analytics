@@ -8,13 +8,15 @@ const ESSAY_FACT_MAP = new Map();
 for (const essay of ESSAY_CATALOG) {
   for (const fact of essay.facts || []) ESSAY_FACT_MAP.set(String(fact.id), { essay, fact });
 }
+const ANALYTICS_COHORT_REGISTRY = null;
 const RESPONSE_BUCKETS = new Set(['<10s', '10–29s', '30–59s', '1–2m', '2–5m', '5m+']);
 const MODES = new Set(['study', 'test']);
 const RESULTS = new Set(['correct', 'partial', 'incorrect']);
 const GLOSSARY_SOURCES = new Set(['question', 'materials', 'other']);
 const ESSAY_SOURCES = new Set(['adaptive', 'library', 'retry', 'next']);
 const LEGACY_COHORT = 'SCP 2026 Summer';
-const CURRENT_COHORT = "Nat Bar Nat & Stam Ye'enam - Summer 26";
+const CURRENT_COHORT = String(ANALYTICS_COHORT_REGISTRY?.defaultAnalyticsKey || "Nat Bar Nat & Stam Ye'enam - Summer 26");
+const SUPPORTED_COHORTS = new Set((ANALYTICS_COHORT_REGISTRY?.cohorts || []).map(cohort => String(cohort.analyticsKey || '')).filter(Boolean));
 const FILTER_FIELDS = new Map([
   ['chaburaRegion', 'chabura_region'], ['chabura', 'chabura'], ['cohort', 'cohort'], ['category', 'category'], ['mode', 'mode'], ['country', 'country'], ['region', 'region'], ['city', 'city']
 ]);
@@ -28,6 +30,20 @@ function text(value, max = 120) {
 function normalizeCohort(value) {
   const cohort = text(value, 100);
   return cohort === LEGACY_COHORT ? CURRENT_COHORT : cohort;
+}
+
+function catalogForCohort(value) {
+  const cohort = normalizeCohort(value);
+  if (!cohort || !SUPPORTED_COHORTS.has(cohort)) throw new Error('Unsupported cohort');
+  if (cohort !== CURRENT_COHORT) throw new Error('Cohort catalog is not configured');
+  return {
+    cohort,
+    questions: QUESTION_CATALOG,
+    questionMap: QUESTION_MAP,
+    essays: ESSAY_CATALOG,
+    essayMap: ESSAY_MAP,
+    essayFactMap: ESSAY_FACT_MAP
+  };
 }
 
 function boolInt(value) { return value ? 1 : 0; }
@@ -350,6 +366,7 @@ function normalizeProfileEvent(raw) {
   const appVersion = text(raw.appVersion, 32);
   const profile = normalizeChaburaFields(raw, true);
   if (!eventId || !installationId || !cohort) throw new Error('Malformed profile event');
+  catalogForCohort(cohort);
   return {
     kind: 'profile', eventId, installationId, cohort, appVersion,
     clientTs: validIsoDate(raw.clientTs), ...profile
@@ -358,12 +375,13 @@ function normalizeProfileEvent(raw) {
 
 function normalizeEvent(raw) {
   if (!raw || typeof raw !== 'object') throw new Error('Invalid event');
-  const questionId = Number(raw.questionId);
-  const q = QUESTION_MAP.get(questionId);
-  if (!q) throw new Error('Unknown question');
   const eventId = text(raw.eventId, 100);
   const installationId = text(raw.installationId, 100);
   const cohort = normalizeCohort(raw.cohort);
+  const catalog = catalogForCohort(cohort);
+  const questionId = Number(raw.questionId);
+  const q = catalog.questionMap.get(questionId);
+  if (!q) throw new Error('Unknown question');
   const appVersion = text(raw.appVersion, 32);
   const mode = text(raw.mode, 10);
   const result = text(raw.result, 16);
@@ -393,8 +411,9 @@ function normalizeGlossaryEvent(raw) {
   const source = GLOSSARY_SOURCES.has(sourceRaw) ? sourceRaw : 'other';
   const termId = text(raw.termId, 80);
   const term = text(raw.term, 140);
+  const catalog = catalogForCohort(cohort);
   const rawQuestionId = Number(raw.questionId);
-  const q = Number.isInteger(rawQuestionId) ? QUESTION_MAP.get(rawQuestionId) : null;
+  const q = Number.isInteger(rawQuestionId) ? catalog.questionMap.get(rawQuestionId) : null;
   const profile = normalizeChaburaFields(raw);
   if (!eventId || !installationId || !cohort || !MODES.has(mode) || !termId || !term || !/^[a-z0-9][a-z0-9-]{0,79}$/i.test(termId)) {
     throw new Error('Malformed glossary event');
@@ -419,10 +438,11 @@ function normalizeEssayIdentity(raw) {
   const roundId = text(raw.roundId, 100);
   const sessionId = text(raw.sessionId, 100);
   const essayId = text(raw.essayId, 100);
-  const essay = essayId ? ESSAY_MAP.get(essayId) : null;
+  const catalog = catalogForCohort(cohort);
+  const essay = essayId ? catalog.essayMap.get(essayId) : null;
   const profile = normalizeChaburaFields(raw);
   if (!eventId || !installationId || !cohort || !roundId || !sessionId || !essay) throw new Error('Malformed essay event');
-  return { eventId, installationId, cohort, appVersion, clientTs: validIsoDate(raw.clientTs), roundId, sessionId, essayId, essay, ...profile };
+  return { eventId, installationId, cohort, appVersion, clientTs: validIsoDate(raw.clientTs), roundId, sessionId, essayId, essay, catalog, ...profile };
 }
 
 function normalizeEssayRoundEvent(raw) {
@@ -455,7 +475,7 @@ function normalizeEssayRoundEvent(raw) {
 function normalizeEssayPairingEvent(raw) {
   const base = normalizeEssayIdentity(raw);
   const factId = text(raw.factId, 100);
-  const mapped = factId ? ESSAY_FACT_MAP.get(factId) : null;
+  const mapped = factId ? base.catalog.essayFactMap.get(factId) : null;
   if (!mapped || String(mapped.essay.id) !== base.essayId) throw new Error('Unknown essay pairing');
   const validFactIds = new Set((base.essay.facts || []).map(fact => String(fact.id)));
   const presented = [...new Set((Array.isArray(raw.presentedChoiceIds) ? raw.presentedChoiceIds : []).map(x => String(x)).filter(x => validFactIds.has(x)))];
