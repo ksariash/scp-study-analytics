@@ -293,7 +293,7 @@ body[id="top"]{scroll-margin-top:0}
 
   function params() {
     const p = new URLSearchParams();
-    ['cohort','country','region','city','from','to'].forEach(id => {
+    ['cohort','chabura','country','region','city','from','to'].forEach(id => {
       const el = document.getElementById(id);
       if (el?.value) p.set(id, el.value);
     });
@@ -399,7 +399,7 @@ body[id="top"]{scroll-margin-top:0}
   }));
   dialogClose?.addEventListener('click', () => dialog.close());
   dialog?.addEventListener('click', e => { if (e.target === dialog) dialog.close(); });
-  ['cohort','country','region','city','from','to'].forEach(id => document.getElementById(id)?.addEventListener('change', () => setTimeout(load, 0)));
+  ['cohort','chabura','country','region','city','from','to'].forEach(id => document.getElementById(id)?.addEventListener('change', () => setTimeout(load, 0)));
   document.getElementById('clearFilters')?.addEventListener('click', () => setTimeout(load, 0));
   document.getElementById('refreshData')?.addEventListener('click', () => setTimeout(load, 0));
   load();
@@ -409,6 +409,10 @@ body[id="top"]{scroll-margin-top:0}
   return html
     .replace('<body>', '<body id="top">')
     .replace('<section class="filters" aria-label="Dashboard filters">', '<section class="filters" id="dashboard-filters" aria-label="Dashboard filters">')
+    .replace('<div class="field cohort"><label for="cohort">Cohort</label><select id="cohort"><option value="">All cohorts</option></select></div>', '<div class="field cohort"><label for="cohort">Cohort</label><select id="cohort"><option value="">All cohorts</option></select></div><div class="field chabura"><label for="chabura">Chabura</label><select id="chabura"><option value="">All chaburos</option></select></div>')
+    .replace('grid-template-columns:repeat(9,minmax(105px,1fr))', 'grid-template-columns:repeat(10,minmax(105px,1fr))')
+    .replace("const filters=['cohort','country','region','city','category','mode','from','to'];", "const filters=['cohort','chabura','country','region','city','category','mode','from','to'];")
+    .replace("fillSelect('cohort',options.cohorts||[]);fillSelect('country'", "fillSelect('cohort',options.cohorts||[]);fillSelect('chabura',options.chaburos||[]);fillSelect('country'")
     .replace('<h2>Needs review</h2>', '<h2 id="needs-review">Needs review</h2>')
     .replace('<h2>Topic heat map</h2>', '<h2 id="heat-map">Topic heat map</h2>')
     .replace('<h2>Topics needing review</h2>', '<h2 id="topics-review">Topics needing review</h2>')

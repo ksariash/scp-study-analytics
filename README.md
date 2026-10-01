@@ -36,3 +36,10 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 - `GET /api/admin/feedback-sync` can trigger the same idempotent sync immediately; it accepts no mutation payload and can only execute actions already embedded in the deployed manifest.
 - Resolution notes and updated wording are written into the existing feedback revision timeline, so the dashboard continues to show how wording changed in response to feedback.
 - This avoids storing a reusable admin bearer token in the public repository while still allowing ChatGPT to prepare approved changes through GitHub.
+
+
+## Release 7
+
+- Adds anonymous chabura and chabura-region dimensions to question, glossary, and essay analytics.
+- Accepts a profile event that immediately associates an anonymous installation with its selected chabura and backfills that installation's earlier analytics rows.
+- Adds a Chabura filter to the dashboard and exposes observed chaburos through the dashboard filter-options endpoint.

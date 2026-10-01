@@ -14,7 +14,7 @@ const RESULTS = new Set(['correct', 'partial', 'incorrect']);
 const GLOSSARY_SOURCES = new Set(['question', 'materials', 'other']);
 const ESSAY_SOURCES = new Set(['adaptive', 'library', 'retry', 'next']);
 const FILTER_FIELDS = new Map([
-  ['cohort', 'cohort'], ['country', 'country'], ['region', 'region'], ['city', 'city'], ['category', 'category'], ['mode', 'mode']
+  ['cohort', 'cohort'], ['chabura', 'chabura'], ['country', 'country'], ['region', 'region'], ['city', 'city'], ['category', 'category'], ['mode', 'mode']
 ]);
 
 function text(value, max = 120) {
@@ -196,6 +196,8 @@ async function ensureGlossaryTable(env) {
     installation_id TEXT NOT NULL,
     cohort TEXT NOT NULL,
     app_version TEXT,
+    chabura TEXT,
+    chabura_region TEXT,
     client_ts TEXT,
     received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     term_id TEXT NOT NULL,
@@ -215,6 +217,7 @@ async function ensureGlossaryTable(env) {
   )`).run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_received_at ON glossary_events(received_at)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_cohort ON glossary_events(cohort)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_chabura ON glossary_events(chabura)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_term ON glossary_events(term_id)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_location ON glossary_events(country, region, city)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_category ON glossary_events(category)').run();
@@ -231,6 +234,8 @@ async function ensureEssayTables(env) {
     installation_id TEXT NOT NULL,
     cohort TEXT NOT NULL,
     app_version TEXT,
+    chabura TEXT,
+    chabura_region TEXT,
     client_ts TEXT,
     received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     event_type TEXT NOT NULL CHECK (event_type IN ('essay_round_start','essay_round_complete')),
@@ -254,6 +259,8 @@ async function ensureEssayTables(env) {
     installation_id TEXT NOT NULL,
     cohort TEXT NOT NULL,
     app_version TEXT,
+    chabura TEXT,
+    chabura_region TEXT,
     client_ts TEXT,
     received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     round_id TEXT NOT NULL,
@@ -272,16 +279,74 @@ async function ensureEssayTables(env) {
   )`).run();
   const indexes = [
     'CREATE INDEX IF NOT EXISTS idx_essay_round_received ON essay_round_events(received_at)',
+    'CREATE INDEX IF NOT EXISTS idx_essay_round_chabura ON essay_round_events(chabura)',
     'CREATE INDEX IF NOT EXISTS idx_essay_round_essay ON essay_round_events(essay_id, event_type)',
     'CREATE INDEX IF NOT EXISTS idx_essay_round_install_essay ON essay_round_events(installation_id, essay_id)',
     'CREATE INDEX IF NOT EXISTS idx_essay_round_round ON essay_round_events(round_id)',
     'CREATE INDEX IF NOT EXISTS idx_essay_pair_received ON essay_pairing_events(received_at)',
+    'CREATE INDEX IF NOT EXISTS idx_essay_pair_chabura ON essay_pairing_events(chabura)',
     'CREATE INDEX IF NOT EXISTS idx_essay_pair_fact ON essay_pairing_events(essay_id, fact_id)',
     'CREATE INDEX IF NOT EXISTS idx_essay_pair_install_fact ON essay_pairing_events(installation_id, fact_id)',
     'CREATE INDEX IF NOT EXISTS idx_essay_pair_round ON essay_pairing_events(round_id)'
   ];
   for (const sql of indexes) await env.DB.prepare(sql).run();
   essayTablesReady = true;
+}
+
+
+let chaburaStorageReady = false;
+async function ensureChaburaStorage(env) {
+  if (chaburaStorageReady) return;
+  await ensureGlossaryTable(env);
+  await ensureEssayTables(env);
+  const tables = ['events', 'glossary_events', 'essay_round_events', 'essay_pairing_events'];
+  for (const table of tables) {
+    const info = resultsOf(await env.DB.prepare(`PRAGMA table_info(${table})`).all());
+    const columns = new Set(info.map(row => String(row.name)));
+    for (const column of ['chabura', 'chabura_region']) {
+      if (columns.has(column)) continue;
+      try { await env.DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`).run(); }
+      catch (error) {
+        if (!/duplicate column/i.test(String(error?.message || error))) throw error;
+      }
+    }
+  }
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS learner_profiles (
+    installation_id TEXT PRIMARY KEY,
+    cohort TEXT NOT NULL,
+    chabura TEXT NOT NULL,
+    chabura_region TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  )`).run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_learner_profiles_chabura ON learner_profiles(chabura)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_events_chabura ON events(chabura)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_chabura ON glossary_events(chabura)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_essay_round_chabura ON essay_round_events(chabura)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_essay_pair_chabura ON essay_pairing_events(chabura)').run();
+  chaburaStorageReady = true;
+}
+
+function normalizeChaburaFields(raw, required = false) {
+  const chabura = text(raw?.chabura, 180);
+  const chaburaRegion = text(raw?.chaburaRegion, 100);
+  if ((chabura && !chaburaRegion) || (!chabura && chaburaRegion) || (required && (!chabura || !chaburaRegion))) {
+    throw new Error('Malformed chabura profile');
+  }
+  return { chabura, chaburaRegion };
+}
+
+function normalizeProfileEvent(raw) {
+  if (!raw || typeof raw !== 'object') throw new Error('Invalid profile event');
+  const eventId = text(raw.eventId, 100);
+  const installationId = text(raw.installationId, 100);
+  const cohort = text(raw.cohort, 100);
+  const appVersion = text(raw.appVersion, 32);
+  const profile = normalizeChaburaFields(raw, true);
+  if (!eventId || !installationId || !cohort) throw new Error('Malformed profile event');
+  return {
+    kind: 'profile', eventId, installationId, cohort, appVersion,
+    clientTs: validIsoDate(raw.clientTs), ...profile
+  };
 }
 
 function normalizeEvent(raw) {
@@ -297,6 +362,7 @@ function normalizeEvent(raw) {
   const result = text(raw.result, 16);
   const attemptNumber = Math.trunc(Number(raw.attemptNumber));
   const bucket = text(raw.responseTimeBucket, 16);
+  const profile = normalizeChaburaFields(raw);
   if (!eventId || !installationId || !cohort || !MODES.has(mode) || !RESULTS.has(result) || !Number.isInteger(attemptNumber) || attemptNumber < 1 || attemptNumber > 10000 || !RESPONSE_BUCKETS.has(bucket)) throw new Error('Malformed event');
   const validLetters = new Set(q.choices.map((_, i) => String.fromCharCode(65 + i)));
   const selected = [...new Set((Array.isArray(raw.selected) ? raw.selected : []).map(x => String(x).toUpperCase()).filter(x => validLetters.has(x)))].sort();
@@ -305,7 +371,7 @@ function normalizeEvent(raw) {
   return {
     eventId, installationId, cohort, appVersion, clientTs: validIsoDate(raw.clientTs), questionId,
     category: q.category, mode, attemptNumber, result, credit, selected, bucket,
-    audioUsed: boolInt(raw.audioUsed), glossaryUsed: boolInt(raw.glossaryUsed)
+    audioUsed: boolInt(raw.audioUsed), glossaryUsed: boolInt(raw.glossaryUsed), ...profile
   };
 }
 
@@ -322,6 +388,7 @@ function normalizeGlossaryEvent(raw) {
   const term = text(raw.term, 140);
   const rawQuestionId = Number(raw.questionId);
   const q = Number.isInteger(rawQuestionId) ? QUESTION_MAP.get(rawQuestionId) : null;
+  const profile = normalizeChaburaFields(raw);
   if (!eventId || !installationId || !cohort || !MODES.has(mode) || !termId || !term || !/^[a-z0-9][a-z0-9-]{0,79}$/i.test(termId)) {
     throw new Error('Malformed glossary event');
   }
@@ -331,7 +398,8 @@ function normalizeGlossaryEvent(raw) {
     clientTs: validIsoDate(raw.clientTs),
     termId, term, source, mode,
     questionId: q ? rawQuestionId : null,
-    category: q?.category || null
+    category: q?.category || null,
+    ...profile
   };
 }
 
@@ -345,8 +413,9 @@ function normalizeEssayIdentity(raw) {
   const sessionId = text(raw.sessionId, 100);
   const essayId = text(raw.essayId, 100);
   const essay = essayId ? ESSAY_MAP.get(essayId) : null;
+  const profile = normalizeChaburaFields(raw);
   if (!eventId || !installationId || !cohort || !roundId || !sessionId || !essay) throw new Error('Malformed essay event');
-  return { eventId, installationId, cohort, appVersion, clientTs: validIsoDate(raw.clientTs), roundId, sessionId, essayId, essay };
+  return { eventId, installationId, cohort, appVersion, clientTs: validIsoDate(raw.clientTs), roundId, sessionId, essayId, essay, ...profile };
 }
 
 function normalizeEssayRoundEvent(raw) {
@@ -399,6 +468,7 @@ function normalizeEssayPairingEvent(raw) {
 }
 
 function normalizeIncomingEvent(raw) {
+  if (raw?.kind === 'profile') return normalizeProfileEvent(raw);
   if (raw?.kind === 'glossary') return normalizeGlossaryEvent(raw);
   if (raw?.kind === 'essay_round_start' || raw?.kind === 'essay_round_complete') return normalizeEssayRoundEvent(raw);
   if (raw?.kind === 'essay_pairing') return normalizeEssayPairingEvent(raw);

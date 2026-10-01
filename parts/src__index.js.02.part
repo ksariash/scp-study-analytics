@@ -4,70 +4,94 @@
   let events;
   try { events = incoming.map(normalizeIncomingEvent); } catch (err) { return jsonResponse({ error: err.message || 'Invalid event' }, { status: 400, headers: cors }); }
 
+  await ensureChaburaStorage(env);
+
   const cf = request.cf || {};
   const geo = {
     country: text(cf.country, 8), region: text(cf.region, 100), regionCode: text(cf.regionCode, 20), city: text(cf.city, 100),
     timezone: text(cf.timezone, 80), metroCode: text(cf.metroCode, 20), latitude: roundCoord(cf.latitude), longitude: roundCoord(cf.longitude)
   };
   const answerSql = `INSERT OR IGNORE INTO events (
-    client_event_id, installation_id, cohort, app_version, client_ts, question_id, category, mode, attempt_number, result, credit,
+    client_event_id, installation_id, cohort, app_version, chabura, chabura_region, client_ts, question_id, category, mode, attempt_number, result, credit,
     selected_json, response_time_bucket, audio_used, glossary_used, country, region, region_code, city, timezone, metro_code, latitude_rounded, longitude_rounded
-  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
   const glossarySql = `INSERT OR IGNORE INTO glossary_events (
-    client_event_id, installation_id, cohort, app_version, client_ts, term_id, term, source, question_id, category, mode,
+    client_event_id, installation_id, cohort, app_version, chabura, chabura_region, client_ts, term_id, term, source, question_id, category, mode,
     country, region, region_code, city, timezone, metro_code, latitude_rounded, longitude_rounded
-  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
   const essayRoundSql = `INSERT OR IGNORE INTO essay_round_events (
-    client_event_id, installation_id, cohort, app_version, client_ts, event_type, round_id, session_id, essay_id, source,
+    client_event_id, installation_id, cohort, app_version, chabura, chabura_region, client_ts, event_type, round_id, session_id, essay_id, source,
     attempt_in_round, total_facts, first_try_correct, total_wrong, perfect, duration_bucket, essay_content_hash,
     country, region, region_code, city, timezone, metro_code, latitude_rounded, longitude_rounded
-  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
   const essayPairingSql = `INSERT OR IGNORE INTO essay_pairing_events (
-    client_event_id, installation_id, cohort, app_version, client_ts, round_id, session_id, essay_id, fact_id, step_index,
+    client_event_id, installation_id, cohort, app_version, chabura, chabura_region, client_ts, round_id, session_id, essay_id, fact_id, step_index,
     first_try, presented_choice_ids_json, wrong_choice_ids_json, response_time_bucket, fact_content_hash, audio_used,
     country, region, region_code, city, timezone, metro_code, latitude_rounded, longitude_rounded
-  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+  const profileEvents = events.filter(e => e.kind === 'profile');
   const answers = events.filter(e => e.kind === 'answer');
   const glossaryEvents = events.filter(e => e.kind === 'glossary');
   const essayRoundEvents = events.filter(e => e.kind === 'essay_round_start' || e.kind === 'essay_round_complete');
   const essayPairingEvents = events.filter(e => e.kind === 'essay_pairing');
-  if (glossaryEvents.length) await ensureGlossaryTable(env);
-  if (essayRoundEvents.length || essayPairingEvents.length) await ensureEssayTables(env);
   const statements = [
     ...answers.map(e => env.DB.prepare(answerSql).bind(
-      e.eventId, e.installationId, e.cohort, e.appVersion, e.clientTs, e.questionId, e.category, e.mode, e.attemptNumber, e.result, e.credit,
+      e.eventId, e.installationId, e.cohort, e.appVersion, e.chabura, e.chaburaRegion, e.clientTs, e.questionId, e.category, e.mode, e.attemptNumber, e.result, e.credit,
       JSON.stringify(e.selected), e.bucket, e.audioUsed, e.glossaryUsed, geo.country, geo.region, geo.regionCode, geo.city, geo.timezone, geo.metroCode, geo.latitude, geo.longitude
     )),
     ...glossaryEvents.map(e => env.DB.prepare(glossarySql).bind(
-      e.eventId, e.installationId, e.cohort, e.appVersion, e.clientTs, e.termId, e.term, e.source, e.questionId, e.category, e.mode,
+      e.eventId, e.installationId, e.cohort, e.appVersion, e.chabura, e.chaburaRegion, e.clientTs, e.termId, e.term, e.source, e.questionId, e.category, e.mode,
       geo.country, geo.region, geo.regionCode, geo.city, geo.timezone, geo.metroCode, geo.latitude, geo.longitude
     )),
     ...essayRoundEvents.map(e => env.DB.prepare(essayRoundSql).bind(
-      e.eventId, e.installationId, e.cohort, e.appVersion, e.clientTs, e.kind, e.roundId, e.sessionId, e.essayId, e.source,
+      e.eventId, e.installationId, e.cohort, e.appVersion, e.chabura, e.chaburaRegion, e.clientTs, e.kind, e.roundId, e.sessionId, e.essayId, e.source,
       e.attemptInRound, e.totalFacts, e.firstTryCorrect, e.totalWrong, e.perfect, e.durationBucket, e.essayContentHash,
       geo.country, geo.region, geo.regionCode, geo.city, geo.timezone, geo.metroCode, geo.latitude, geo.longitude
     )),
     ...essayPairingEvents.map(e => env.DB.prepare(essayPairingSql).bind(
-      e.eventId, e.installationId, e.cohort, e.appVersion, e.clientTs, e.roundId, e.sessionId, e.essayId, e.factId, e.stepIndex,
+      e.eventId, e.installationId, e.cohort, e.appVersion, e.chabura, e.chaburaRegion, e.clientTs, e.roundId, e.sessionId, e.essayId, e.factId, e.stepIndex,
       e.firstTry, JSON.stringify(e.presented), JSON.stringify(e.wrong), e.bucket, e.factContentHash, e.audioUsed,
       geo.country, geo.region, geo.regionCode, geo.city, geo.timezone, geo.metroCode, geo.latitude, geo.longitude
     ))
   ];
-  await env.DB.batch(statements);
+  if (statements.length) await env.DB.batch(statements);
+
+  for (const profile of profileEvents) {
+    const profileStatements = [
+      env.DB.prepare(`INSERT INTO learner_profiles (installation_id, cohort, chabura, chabura_region, updated_at)
+        VALUES (?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        ON CONFLICT(installation_id) DO UPDATE SET cohort=excluded.cohort, chabura=excluded.chabura,
+          chabura_region=excluded.chabura_region, updated_at=excluded.updated_at`)
+        .bind(profile.installationId, profile.cohort, profile.chabura, profile.chaburaRegion),
+      env.DB.prepare('UPDATE events SET chabura=?, chabura_region=? WHERE installation_id=?').bind(profile.chabura, profile.chaburaRegion, profile.installationId),
+      env.DB.prepare('UPDATE glossary_events SET chabura=?, chabura_region=? WHERE installation_id=?').bind(profile.chabura, profile.chaburaRegion, profile.installationId),
+      env.DB.prepare('UPDATE essay_round_events SET chabura=?, chabura_region=? WHERE installation_id=?').bind(profile.chabura, profile.chaburaRegion, profile.installationId),
+      env.DB.prepare('UPDATE essay_pairing_events SET chabura=?, chabura_region=? WHERE installation_id=?').bind(profile.chabura, profile.chaburaRegion, profile.installationId)
+    ];
+    await env.DB.batch(profileStatements);
+  }
+
   return jsonResponse({
-    ok: true, accepted: events.length, answers: answers.length, glossary: glossaryEvents.length,
+    ok: true, accepted: events.length, profiles: profileEvents.length, answers: answers.length, glossary: glossaryEvents.length,
     essayRounds: essayRoundEvents.length, essayPairings: essayPairingEvents.length
   }, { headers: cors });
 }
 
 async function dashboardOptions(env) {
-  await ensureEssayTables(env);
-  const [cohorts, locations] = await Promise.all([
+  await ensureChaburaStorage(env);
+  const [cohorts, chaburos, locations] = await Promise.all([
     env.DB.prepare(`SELECT DISTINCT cohort FROM (
       SELECT cohort FROM events
       UNION ALL
       SELECT cohort FROM essay_round_events
     ) WHERE cohort IS NOT NULL AND cohort != '' ORDER BY cohort DESC`).all(),
+    env.DB.prepare(`SELECT DISTINCT chabura FROM (
+      SELECT chabura FROM learner_profiles
+      UNION ALL
+      SELECT chabura FROM events
+      UNION ALL
+      SELECT chabura FROM essay_round_events
+    ) WHERE chabura IS NOT NULL AND chabura != '' ORDER BY chabura`).all(),
     env.DB.prepare(`SELECT DISTINCT country, region, region_code, city FROM (
       SELECT country, region, region_code, city FROM events
       UNION ALL
@@ -76,6 +100,7 @@ async function dashboardOptions(env) {
   ]);
   return jsonResponse({
     cohorts: resultsOf(cohorts).map(x => x.cohort),
+    chaburos: resultsOf(chaburos).map(x => x.chabura),
     locations: resultsOf(locations),
     categories: [...new Set(QUESTION_CATALOG.map(q => q.category))]
   });
@@ -89,7 +114,7 @@ function combineRows(primary, secondary, key = 'category') {
 async function dashboardSummary(request, env) {
   const url = new URL(request.url);
   const { where, params } = queryFilter(url);
-  await ensureGlossaryTable(env);
+  await ensureChaburaStorage(env);
   const baseOverview = stmt(env, `SELECT COUNT(*) submissions, COUNT(DISTINCT installation_id) learners,
       SUM(CASE WHEN attempt_number = 1 THEN 1 ELSE 0 END) first_attempts,
       SUM(CASE WHEN attempt_number = 1 AND result = 'correct' THEN 1 ELSE 0 END) first_correct,

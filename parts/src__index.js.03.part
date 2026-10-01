@@ -141,7 +141,7 @@
 function essayAnalyticsFilter(url) {
   const clauses = [];
   const params = [];
-  for (const field of ['cohort','country','region','city']) {
+  for (const field of ['cohort','chabura','country','region','city']) {
     const value = text(url.searchParams.get(field), 160);
     if (value) { clauses.push(`${field} = ?`); params.push(value); }
   }
@@ -181,7 +181,7 @@ function parseIdArray(value) {
 }
 
 async function dashboardEssaySummary(request, env) {
-  await ensureEssayTables(env);
+  await ensureChaburaStorage(env);
   const url = new URL(request.url);
   const filter = essayAnalyticsFilter(url);
   const [roundResult, pairingResult] = await Promise.all([
@@ -314,7 +314,7 @@ export default {
       return cors ? new Response(null, { status: 204, headers: cors }) : new Response(null, { status: 403 });
     }
     if (request.method === 'POST' && url.pathname === '/api/events') return ingestEvents(request, env);
-    if (request.method === 'GET' && url.pathname === '/api/health') return jsonResponse({ ok: true, service: 'scp-study-analytics', version: 6 });
+    if (request.method === 'GET' && url.pathname === '/api/health') return jsonResponse({ ok: true, service: 'scp-study-analytics', version: 7 });
     if (request.method === 'GET' && url.pathname === '/api/options') return dashboardOptions(env);
     if (request.method === 'GET' && url.pathname === '/api/summary') return dashboardSummary(request, env);
     if (request.method === 'GET' && url.pathname === '/api/essay-summary') return dashboardEssaySummary(request, env);
