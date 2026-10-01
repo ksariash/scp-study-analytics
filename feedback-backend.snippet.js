@@ -96,6 +96,7 @@ async function ensureFeedbackTables(env) {
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_feedback_reports_content ON feedback_reports(content_type, content_id)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_feedback_reports_received ON feedback_reports(received_at)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_feedback_reports_reason ON feedback_reports(reason)').run();
+  await env.DB.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_unique_install_version ON feedback_reports(installation_id, content_type, content_id, content_hash)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_feedback_issues_status ON feedback_issues(status, last_report_at)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_feedback_revisions_content ON feedback_revisions(content_type, content_id, created_at)').run();
   feedbackTablesReady = true;
@@ -211,8 +212,10 @@ function feedbackIssueFilters(url) {
   const from = text(url.searchParams.get('from'), 10);
   const to = text(url.searchParams.get('to'), 10);
   const includeResolved = url.searchParams.get('includeResolved') === '1';
+  const status = text(url.searchParams.get('status'), 20);
   if (type && FEEDBACK_TYPES.has(type)) { clauses.push('i.content_type=?'); params.push(type); }
-  if (!includeResolved) clauses.push("i.status != 'resolved'");
+  if (status && FEEDBACK_STATUSES.has(status)) { clauses.push('i.status=?'); params.push(status); }
+  else if (!includeResolved) clauses.push("i.status != 'resolved'");
   if (reason && FEEDBACK_REASONS.has(reason)) { clauses.push('r.reason=?'); params.push(reason); }
   if (cohort) { clauses.push('r.cohort=?'); params.push(cohort); }
   if (category) { clauses.push('i.category=?'); params.push(category); }
@@ -420,6 +423,7 @@ load();
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname === '/api/health' && request.method === 'GET') return jsonResponse({ ok:true, service:'scp-study-analytics', version:4, feedback:true });
     if (url.pathname === '/api/feedback/report' && request.method === 'OPTIONS') {
       const cors = feedbackCors(request, env);
       return cors ? new Response(null, { status:204, headers:cors }) : new Response(null, { status:403 });
