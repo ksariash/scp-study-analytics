@@ -56,3 +56,8 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 
 - Replaces the wide Essay Performance table with responsive cards so essay analytics stay within the viewport on phones and narrow windows.
 - Each essay card shows learners, rounds, completion, first-try accuracy, perfect-round rate, and retries without horizontal overflow.
+
+
+## Release 10
+
+- Renames the Summer 2026 cohort to `Nat Bar Nat & Stam Ye'enam - Summer 26` and migrates existing analytics rows from the prior cohort label.
