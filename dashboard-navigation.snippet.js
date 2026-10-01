@@ -84,6 +84,9 @@ body[id="top"]{scroll-margin-top:0}
 .essay-detail-pairing{padding:11px;border:1px solid #e4eaf3;border-radius:11px;background:#f8fafc;line-height:1.45;font-size:.78rem}.essay-detail-pairing strong{display:block;margin-bottom:3px}
 .essay-confusion-row{display:grid;grid-template-columns:minmax(0,1fr) 78px 78px;gap:8px;padding:7px 0;border-bottom:1px solid #edf1f6;font-size:.69rem}.essay-confusion-row:last-child{border-bottom:0}
 .essay-confusion-row .num{text-align:right}
+#dashboard-filters{grid-template-columns:repeat(5,minmax(130px,1fr))}
+#dashboard-filters .clear{grid-column:1 / -1}
+@media(max-width:1100px){#dashboard-filters{grid-template-columns:repeat(4,minmax(120px,1fr))}}
 @media(max-width:900px){.essay-analytics-overview{grid-template-columns:repeat(3,1fr)}}
 
 .jump-menu-title{padding:5px 7px 7px;color:#748198;font-size:.61rem;font-weight:900;text-transform:uppercase;letter-spacing:.055em}
@@ -103,6 +106,18 @@ body[id="top"]{scroll-margin-top:0}
   .feedback-controls{width:100%}
   .feedback-controls select,.feedback-controls input[type="search"]{flex:1 1 130px}
   .essay-analytics-overview{grid-template-columns:repeat(2,1fr)}
+  #dashboard-filters{grid-template-columns:1fr 1fr}
+  #dashboard-filters .chabura-region{grid-column:1}
+  #dashboard-filters .chabura{grid-column:2}
+  #dashboard-filters .cohort{grid-column:1}
+  #dashboard-filters .category{grid-column:2}
+  #dashboard-filters .mode{grid-column:1}
+  #dashboard-filters .country{grid-column:2}
+  #dashboard-filters .region{grid-column:1}
+  #dashboard-filters .city{grid-column:2}
+  #dashboard-filters .from{grid-column:1}
+  #dashboard-filters .to{grid-column:2}
+  #dashboard-filters .clear{grid-column:1 / -1}
   .essay-needs-grid{grid-template-columns:1fr}
   .essay-fact-cards{display:block}
   #essayFactDiagnostics .desktop-table{display:none}
@@ -293,7 +308,7 @@ body[id="top"]{scroll-margin-top:0}
 
   function params() {
     const p = new URLSearchParams();
-    ['cohort','chabura','country','region','city','from','to'].forEach(id => {
+    ['chaburaRegion','chabura','cohort','country','region','city','from','to'].forEach(id => {
       const el = document.getElementById(id);
       if (el?.value) p.set(id, el.value);
     });
@@ -399,20 +414,49 @@ body[id="top"]{scroll-margin-top:0}
   }));
   dialogClose?.addEventListener('click', () => dialog.close());
   dialog?.addEventListener('click', e => { if (e.target === dialog) dialog.close(); });
-  ['cohort','chabura','country','region','city','from','to'].forEach(id => document.getElementById(id)?.addEventListener('change', () => setTimeout(load, 0)));
+  ['chaburaRegion','chabura','cohort','country','region','city','from','to'].forEach(id => document.getElementById(id)?.addEventListener('change', () => setTimeout(load, 0)));
   document.getElementById('clearFilters')?.addEventListener('click', () => setTimeout(load, 0));
   document.getElementById('refreshData')?.addEventListener('click', () => setTimeout(load, 0));
   load();
 })();
 </script>`;
 
+  const originalFilters =
+    '<section class="filters" aria-label="Dashboard filters">\n' +
+    '    <div class="field cohort"><label for="cohort">Cohort</label><select id="cohort"><option value="">All cohorts</option></select></div>\n' +
+    '    <div class="field mode"><label for="mode">Mode</label><select id="mode"><option value="">Study + Test</option><option value="study">Study</option><option value="test">Practice test</option></select></div>\n' +
+    '    <div class="field country"><label for="country">Country</label><select id="country"><option value="">All countries</option></select></div>\n' +
+    '    <div class="field region"><label for="region">Region</label><select id="region"><option value="">All regions</option></select></div>\n' +
+    '    <div class="field city"><label for="city">City</label><select id="city"><option value="">All cities</option></select></div>\n' +
+    '    <div class="field category"><label for="category">Topic</label><select id="category"><option value="">All topics</option></select></div>\n' +
+    '    <div class="field from"><label for="from">From</label><input id="from" type="date" /></div>\n' +
+    '    <div class="field to"><label for="to">Through</label><input id="to" type="date" /></div>\n' +
+    '    <button class="clear" id="clearFilters" type="button">Clear filters</button>\n' +
+    '  </section>';
+  const reorderedFilters =
+    '<section class="filters" id="dashboard-filters" aria-label="Dashboard filters">\n' +
+    '    <div class="field chabura-region"><label for="chaburaRegion">Chabura Location</label><select id="chaburaRegion"><option value="">All chabura locations</option></select></div>\n' +
+    '    <div class="field chabura"><label for="chabura">Chabura Rav</label><select id="chabura"><option value="">All chabura rabbanim</option></select></div>\n' +
+    '    <div class="field cohort"><label for="cohort">Cohort</label><select id="cohort"><option value="">All cohorts</option></select></div>\n' +
+    '    <div class="field category"><label for="category">Topic</label><select id="category"><option value="">All topics</option></select></div>\n' +
+    '    <div class="field mode"><label for="mode">Mode</label><select id="mode"><option value="">Study + Test</option><option value="study">Study</option><option value="test">Practice test</option></select></div>\n' +
+    '    <div class="field country"><label for="country">Country</label><select id="country"><option value="">All countries</option></select></div>\n' +
+    '    <div class="field region"><label for="region">Region</label><select id="region"><option value="">All regions</option></select></div>\n' +
+    '    <div class="field city"><label for="city">City</label><select id="city"><option value="">All cities</option></select></div>\n' +
+    '    <div class="field from"><label for="from">From</label><input id="from" type="date" /></div>\n' +
+    '    <div class="field to"><label for="to">Through</label><input id="to" type="date" /></div>\n' +
+    '    <button class="clear" id="clearFilters" type="button">Clear filters</button>\n' +
+    '  </section>';
+
   return html
     .replace('<body>', '<body id="top">')
-    .replace('<section class="filters" aria-label="Dashboard filters">', '<section class="filters" id="dashboard-filters" aria-label="Dashboard filters">')
-    .replace('<div class="field cohort"><label for="cohort">Cohort</label><select id="cohort"><option value="">All cohorts</option></select></div>', '<div class="field cohort"><label for="cohort">Cohort</label><select id="cohort"><option value="">All cohorts</option></select></div><div class="field chabura"><label for="chabura">Chabura</label><select id="chabura"><option value="">All chaburos</option></select></div>')
-    .replace('grid-template-columns:repeat(9,minmax(105px,1fr))', 'grid-template-columns:repeat(10,minmax(105px,1fr))')
-    .replace("const filters=['cohort','country','region','city','category','mode','from','to'];", "const filters=['cohort','chabura','country','region','city','category','mode','from','to'];")
-    .replace("fillSelect('cohort',options.cohorts||[]);fillSelect('country'", "fillSelect('cohort',options.cohorts||[]);fillSelect('chabura',options.chaburos||[]);fillSelect('country'")
+    .replace(originalFilters, reorderedFilters)
+    .replace("const filters=['cohort','country','region','city','category','mode','from','to'];", "const filters=['chaburaRegion','chabura','cohort','category','mode','country','region','city','from','to'];")
+    .replace("function query(){", "function cascadeChabura(){if(!options)return;const location=$('chaburaRegion').value,rav=$('chabura').value;const profiles=options.chaburaProfiles||[];const ravs=[...new Set(profiles.filter(x=>!location||x.location===location).map(x=>x.rav).filter(Boolean))].sort();fillSelect('chabura',ravs);if(rav&&ravs.includes(rav))$('chabura').value=rav};function query(){")
+    .replace("function applyUrlFilters(){const p=new URLSearchParams(location.search);filters.forEach(id=>{const v=p.get(id);if(v!==null)$(id).value=v});cascadeLocation();", "function applyUrlFilters(){const p=new URLSearchParams(location.search);filters.forEach(id=>{const v=p.get(id);if(v!==null)$(id).value=v});cascadeChabura();cascadeLocation();")
+    .replace("async function init(){try{options=await getJSON('/api/options');fillSelect('cohort',options.cohorts||[]);fillSelect('country'", "async function init(){try{options=await getJSON('/api/options');fillSelect('chaburaRegion',options.chaburaLocations||[]);cascadeChabura();fillSelect('cohort',options.cohorts||[]);fillSelect('country'")
+    .replace("filters.forEach(id=>$(id).addEventListener('change',()=>{if(id==='country'||id==='region')cascadeLocation();loadSummary()}));", "filters.forEach(id=>$(id).addEventListener('change',()=>{if(id==='chaburaRegion')cascadeChabura();if(id==='country'||id==='region')cascadeLocation();loadSummary()}));")
+    .replace("$('clearFilters').addEventListener('click',()=>{filters.forEach(id=>$(id).value='');cascadeLocation();loadSummary()});", "$('clearFilters').addEventListener('click',()=>{filters.forEach(id=>$(id).value='');cascadeChabura();cascadeLocation();loadSummary()});")
     .replace('<h2>Needs review</h2>', '<h2 id="needs-review">Needs review</h2>')
     .replace('<h2>Topic heat map</h2>', '<h2 id="heat-map">Topic heat map</h2>')
     .replace('<h2>Topics needing review</h2>', '<h2 id="topics-review">Topics needing review</h2>')

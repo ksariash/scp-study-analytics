@@ -14,7 +14,7 @@ const RESULTS = new Set(['correct', 'partial', 'incorrect']);
 const GLOSSARY_SOURCES = new Set(['question', 'materials', 'other']);
 const ESSAY_SOURCES = new Set(['adaptive', 'library', 'retry', 'next']);
 const FILTER_FIELDS = new Map([
-  ['cohort', 'cohort'], ['chabura', 'chabura'], ['country', 'country'], ['region', 'region'], ['city', 'city'], ['category', 'category'], ['mode', 'mode']
+  ['chaburaRegion', 'chabura_region'], ['chabura', 'chabura'], ['cohort', 'cohort'], ['category', 'category'], ['mode', 'mode'], ['country', 'country'], ['region', 'region'], ['city', 'city']
 ]);
 
 function text(value, max = 120) {
@@ -217,7 +217,6 @@ async function ensureGlossaryTable(env) {
   )`).run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_received_at ON glossary_events(received_at)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_cohort ON glossary_events(cohort)').run();
-  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_chabura ON glossary_events(chabura)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_term ON glossary_events(term_id)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_location ON glossary_events(country, region, city)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_category ON glossary_events(category)').run();
@@ -279,12 +278,10 @@ async function ensureEssayTables(env) {
   )`).run();
   const indexes = [
     'CREATE INDEX IF NOT EXISTS idx_essay_round_received ON essay_round_events(received_at)',
-    'CREATE INDEX IF NOT EXISTS idx_essay_round_chabura ON essay_round_events(chabura)',
     'CREATE INDEX IF NOT EXISTS idx_essay_round_essay ON essay_round_events(essay_id, event_type)',
     'CREATE INDEX IF NOT EXISTS idx_essay_round_install_essay ON essay_round_events(installation_id, essay_id)',
     'CREATE INDEX IF NOT EXISTS idx_essay_round_round ON essay_round_events(round_id)',
     'CREATE INDEX IF NOT EXISTS idx_essay_pair_received ON essay_pairing_events(received_at)',
-    'CREATE INDEX IF NOT EXISTS idx_essay_pair_chabura ON essay_pairing_events(chabura)',
     'CREATE INDEX IF NOT EXISTS idx_essay_pair_fact ON essay_pairing_events(essay_id, fact_id)',
     'CREATE INDEX IF NOT EXISTS idx_essay_pair_install_fact ON essay_pairing_events(installation_id, fact_id)',
     'CREATE INDEX IF NOT EXISTS idx_essay_pair_round ON essay_pairing_events(round_id)'

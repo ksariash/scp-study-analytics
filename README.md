@@ -43,3 +43,10 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 - Adds anonymous chabura and chabura-region dimensions to question, glossary, and essay analytics.
 - Accepts a profile event that immediately associates an anonymous installation with its selected chabura and backfills that installation's earlier analytics rows.
 - Adds a Chabura filter to the dashboard and exposes observed chaburos through the dashboard filter-options endpoint.
+
+
+## Release 8
+
+- Fixes the chabura schema migration order: existing D1 tables are altered before indexes are created on the new chabura columns, preventing dashboard/API 500s on upgraded databases.
+- Splits the dashboard chabura filter into Chabura Location and Chabura Rav, with the Rav list cascading from the selected location.
+- Reorders filters to Chabura Location, Chabura Rav, Cohort, Topic, Mode, Country, Region, City, From, Through.

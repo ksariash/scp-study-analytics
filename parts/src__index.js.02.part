@@ -79,28 +79,36 @@
 
 async function dashboardOptions(env) {
   await ensureChaburaStorage(env);
-  const [cohorts, chaburos, locations] = await Promise.all([
+  const [cohorts, chaburaProfiles, locations] = await Promise.all([
     env.DB.prepare(`SELECT DISTINCT cohort FROM (
       SELECT cohort FROM events
       UNION ALL
       SELECT cohort FROM essay_round_events
     ) WHERE cohort IS NOT NULL AND cohort != '' ORDER BY cohort DESC`).all(),
-    env.DB.prepare(`SELECT DISTINCT chabura FROM (
-      SELECT chabura FROM learner_profiles
+    env.DB.prepare(`SELECT DISTINCT chabura_region, chabura FROM (
+      SELECT chabura_region, chabura FROM learner_profiles
       UNION ALL
-      SELECT chabura FROM events
+      SELECT chabura_region, chabura FROM events
       UNION ALL
-      SELECT chabura FROM essay_round_events
-    ) WHERE chabura IS NOT NULL AND chabura != '' ORDER BY chabura`).all(),
+      SELECT chabura_region, chabura FROM essay_round_events
+    ) WHERE chabura_region IS NOT NULL AND chabura_region != ''
+      AND chabura IS NOT NULL AND chabura != ''
+    ORDER BY chabura_region, chabura`).all(),
     env.DB.prepare(`SELECT DISTINCT country, region, region_code, city FROM (
       SELECT country, region, region_code, city FROM events
       UNION ALL
       SELECT country, region, region_code, city FROM essay_round_events
     ) WHERE country IS NOT NULL ORDER BY country, region, city`).all()
   ]);
+  const profiles = resultsOf(chaburaProfiles).map(row => ({
+    location: row.chabura_region,
+    rav: row.chabura
+  }));
   return jsonResponse({
     cohorts: resultsOf(cohorts).map(x => x.cohort),
-    chaburos: resultsOf(chaburos).map(x => x.chabura),
+    chaburaLocations: [...new Set(profiles.map(x => x.location).filter(Boolean))],
+    chaburaProfiles: profiles,
+    chaburos: [...new Set(profiles.map(x => x.rav).filter(Boolean))],
     locations: resultsOf(locations),
     categories: [...new Set(QUESTION_CATALOG.map(q => q.category))]
   });
