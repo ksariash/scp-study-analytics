@@ -117,3 +117,22 @@ Announcements/composer administration no longer belongs in this repository. Keep
 ## Reminder status API
 
 `GET /api/reminders/next?installationId=...&zman=...` is the Study UI's source of truth for the next daily reminder. It must use the same timezone, Israel/Diaspora, approximate-location, sunset/tzeit, Shabbat, and Yom Tov rules as the scheduled sender. Do not duplicate holiday logic in the Study browser.
+
+
+## Resource-usage analytics
+
+Study emits explicit `kind:"resource"` events for audio play starts and note-page opens. Store these in `resource_events`; do not infer file/page popularity from the older answer-level `audio_used` boolean.
+
+Definitions:
+- **Audio play**: an HTML audio `play` event for one review file, including a resume that actually starts playback.
+- **Notes open**: opening a specific concise/full notes page from a question or essay note link.
+- **Glossary open**: the existing `glossary_events` interaction.
+- “Learners” remains distinct anonymous installations.
+
+The Study aid usage dashboard shows aggregate opens/plays plus ranked audio files and note pages. Always disclose when detailed tracking starts with a newer Study release.
+
+## Supplemental dashboard initialization
+
+Dashboard submodules such as Essay analytics and Study aid usage must work before asynchronous filter initialization finishes. Summary endpoints default a missing Zman to `CURRENT_ZMAN`; a blank initial select must never cause a current-Zman panel to say “Select a supported zman.”
+
+Build checks verify structural dashboard insertion points. Separate dashboard modules reload when shared filters change.
