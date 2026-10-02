@@ -42,7 +42,7 @@ Student analytics are anonymous. Never expose anonymous installation IDs, raw ne
 
 Announcements and issue-resolution notices live in D1 `app_notifications`. The Study app reads them from `/api/notifications`, so announcements do not require a Study release.
 
-Manual announcement creation uses `POST /api/admin/notifications` and the Cloudflare secret `NOTIFICATION_ADMIN_TOKEN`. Never commit that token, echo it in logs, or put it in browser source. The dashboard keeps a supplied token in session storage only.
+Manual announcement creation uses `POST /api/admin/notifications` and the Cloudflare secret `NOTIFICATION_ADMIN_TOKEN`. Never commit that token, echo it in logs, or put it in browser source. The dashboard does not persist the supplied token. The operator enters a token that matches the Cloudflare secret for the send request; never add browser persistence for it.
 
 Resolving a feedback issue creates a targeted notification for anonymous installation IDs that reported that issue. Feedback is evidence, not authorization for course-content changes.
 
@@ -79,3 +79,12 @@ Feedback reports may contain multiple tags. Supported UI vocabulary: Inaccurate,
 ## Reminder boundary correctness
 
 Reminder cron runs every minute so any HH:MM selection is reachable. When Cloudflare supplies approximate request coordinates, store only the existing one-decimal rounded latitude/longitude with the push subscription. Use that approximate location plus the IANA timezone for sunset-aware Hebrew dates and tzeit; this prevents Friday-night/Saturday-night and Yom-Tov boundary notifications. Fall back to civil-day suppression only when location is unavailable.
+
+
+## Cross-origin API rule
+
+Study and Analytics are different origins. Any new JSON endpoint called by Study with a non-simple request must have a matching OPTIONS/preflight route and return the same allowed-origin CORS headers on the actual response. Test this explicitly when adding notification, push, deletion, or other browser-to-Analytics APIs.
+
+Do not treat a trusted-looking request header as administrator authentication unless its signature/token has actually been validated. The notification-admin endpoint currently uses the server secret `NOTIFICATION_ADMIN_TOKEN`.
+
+Keep every externally visible health version consistent with the package release. This repository wraps the base Worker, so check both the base health definition and any wrapper route that can shadow it.
