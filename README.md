@@ -119,3 +119,9 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 - Removes announcement composition from the Analytics dashboard.
 - Adds rich notification body support for the dedicated Announcements app.
 - Adds build-time dashboard marker checks so a missed HTML enhancement fails the build.
+
+
+## Release 19
+
+- Adds `/api/reminders/next` so Study can display the next eligible reminder using the same Shabbat/Yom Tov logic as delivery.
+- Distinguishes reminders deferred until after Shabbat or after Yom Tov.

@@ -606,7 +606,7 @@ async function upsertPushSubscription(request,env){
 async function removePushSubscription(request,env){const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400,headers:cors})}const installationId=text(body?.installationId,100),endpoint=text(body?.endpoint,2000);if(endpoint)await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint=?').bind(endpoint).run();else if(installationId)await env.DB.prepare('DELETE FROM push_subscriptions WHERE installation_id=?').bind(installationId).run();else return jsonResponse({error:'Invalid unsubscribe request'},{status:400,headers:cors});return jsonResponse({ok:true},{headers:cors});}
 function localClock(date,timezone){try{const parts=new Intl.DateTimeFormat('en-CA',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date),v=Object.fromEntries(parts.filter(p=>p.type!=='literal').map(p=>[p.type,p.value]));return{date:`${v.year}-${v.month}-${v.day}`,time:`${v.hour}:${v.minute}`,year:Number(v.year),month:Number(v.month),day:Number(v.day)}}catch(_){return null}}
 function hasChag(events){return(events||[]).some(event=>(event.getFlags()&flags.CHAG)!==0);}
-function isStudyReminderBlocked(now,clock,row){
+function studyReminderBlockReason(now,clock,row){
   const il=!!Number(row.israel_calendar);
   const civilDate=new Date(Date.UTC(clock.year,clock.month-1,clock.day,12));
   const latitude=Number(row.latitude_rounded),longitude=Number(row.longitude_rounded);
@@ -614,15 +614,60 @@ function isStudyReminderBlocked(now,clock,row){
     try{
       const gloc=new GeoLocation(null,latitude,longitude,0,row.timezone);
       const hdate=Zmanim.makeSunsetAwareHDate(gloc,now,false);
-      if(hdate.greg().getDay()===6||hasChag(getHolidaysOnDate(hdate,il)))return true;
+      if(hdate.greg().getDay()===6)return 'shabbat';
+      if(hasChag(getHolidaysOnDate(hdate,il)))return 'yom_tov';
       const zmanim=new Zmanim(gloc,civilDate,false),sunset=zmanim.sunset(),tzeit=zmanim.tzeit();
       const twilight=Number.isFinite(sunset?.getTime?.())&&Number.isFinite(tzeit?.getTime?.())&&now>=sunset&&now<tzeit;
-      if(twilight&&(civilDate.getUTCDay()===6||hasChag(getHolidaysOnDate(civilDate,il))))return true;
-      return false;
+      if(twilight){
+        if(civilDate.getUTCDay()===6)return 'shabbat';
+        if(hasChag(getHolidaysOnDate(civilDate,il)))return 'yom_tov';
+      }
+      return null;
     }catch(_){}
   }
-  if(civilDate.getUTCDay()===6)return true;
-  return hasChag(getHolidaysOnDate(civilDate,il));
+  if(civilDate.getUTCDay()===6)return 'shabbat';
+  return hasChag(getHolidaysOnDate(civilDate,il))?'yom_tov':null;
+}
+function isStudyReminderBlocked(now,clock,row){return !!studyReminderBlockReason(now,clock,row);}
+function localDayOffset(clock,offset){
+  const d=new Date(Date.UTC(clock.year,clock.month-1,clock.day+offset,12));
+  return{year:d.getUTCFullYear(),month:d.getUTCMonth()+1,day:d.getUTCDate()};
+}
+function instantForLocalTime(day,time,timezone){
+  const match=/^(\d{2}):(\d{2})$/.exec(String(time||''));if(!match)return null;
+  const hour=Number(match[1]),minute=Number(match[2]),target=Date.UTC(day.year,day.month-1,day.day,hour,minute);
+  let ms=target;
+  for(let i=0;i<3;i++){
+    const clock=localClock(new Date(ms),timezone);if(!clock)return null;
+    const [actualHour,actualMinute]=clock.time.split(':').map(Number);
+    const actual=Date.UTC(clock.year,clock.month-1,clock.day,actualHour,actualMinute);
+    ms+=target-actual;
+  }
+  return new Date(ms);
+}
+async function nextStudyReminder(request,env){
+  const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});
+  await ensureNotificationTables(env);
+  const url=new URL(request.url),installationId=text(url.searchParams.get('installationId'),100),zman=normalizeZman(url.searchParams.get('zman')||CURRENT_ZMAN);
+  if(!installationId||!SUPPORTED_ZMANIM.has(zman))return jsonResponse({error:'Invalid reminder request'},{status:400,headers:cors});
+  const row=await env.DB.prepare(`SELECT installation_id,zman,timezone,reminder_enabled,reminder_time,israel_calendar,latitude_rounded,longitude_rounded,updated_at
+    FROM push_subscriptions WHERE installation_id=? AND zman=? ORDER BY updated_at DESC LIMIT 1`).bind(installationId,zman).first();
+  if(!row||!Number(row.reminder_enabled)||!row.reminder_time)return jsonResponse({enabled:false,reason:'disabled'},{headers:cors});
+  const now=new Date(),localNow=localClock(now,row.timezone);if(!localNow)return jsonResponse({enabled:true,reason:'unknown',reminderTime:row.reminder_time},{headers:cors});
+  const skipped=[],currentReason=studyReminderBlockReason(now,localNow,row);if(currentReason)skipped.push(currentReason);
+  for(let offset=0;offset<15;offset++){
+    const day=localDayOffset(localNow,offset),candidate=instantForLocalTime(day,row.reminder_time,row.timezone);
+    if(!candidate||candidate<=now)continue;
+    const clock=localClock(candidate,row.timezone),blocked=studyReminderBlockReason(candidate,clock,row);
+    if(blocked){skipped.push(blocked);continue}
+    let reason='future';
+    if(offset===0)reason='today';
+    else if(skipped.includes('yom_tov'))reason='after_yom_tov';
+    else if(skipped.includes('shabbat'))reason='after_shabbat';
+    else if(offset===1)reason='tomorrow';
+    return jsonResponse({enabled:true,reason,nextAt:candidate.toISOString(),localDate:clock?.date||null,reminderTime:row.reminder_time,timezone:row.timezone},{headers:cors});
+  }
+  return jsonResponse({enabled:true,reason:'future',reminderTime:row.reminder_time,timezone:row.timezone},{headers:cors});
 }
 async function sendDailyStudyReminders(env){
   await ensureNotificationTables(env);
@@ -714,7 +759,7 @@ load();
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === '/api/health' && request.method === 'GET') return jsonResponse({ ok:true, service:'scp-study-analytics', version:18, feedback:true, push:true });
+    if (url.pathname === '/api/health' && request.method === 'GET') return jsonResponse({ ok:true, service:'scp-study-analytics', version:19, feedback:true, push:true });
     if (url.pathname === '/api/feedback/report' && request.method === 'OPTIONS') {
       const cors = feedbackCors(request, env);
       return cors ? new Response(null, { status:204, headers:cors }) : new Response(null, { status:403 });
@@ -726,6 +771,7 @@ export default {
       url.pathname === '/api/push/config' ||
       url.pathname === '/api/push/subscribe' ||
       url.pathname === '/api/push/unsubscribe' ||
+      url.pathname === '/api/reminders/next' ||
       url.pathname === '/api/data/delete'
     )) {
       const cors = notificationCors(request, env);
@@ -736,6 +782,7 @@ export default {
     if (url.pathname === '/api/push/config' && request.method === 'GET') return pushConfigResponse(request, env);
     if (url.pathname === '/api/push/subscribe' && request.method === 'POST') return upsertPushSubscription(request, env);
     if (url.pathname === '/api/push/unsubscribe' && request.method === 'POST') return removePushSubscription(request, env);
+    if (url.pathname === '/api/reminders/next' && request.method === 'GET') return nextStudyReminder(request, env);
     if (url.pathname === '/api/data/delete' && request.method === 'POST') return deleteAnonymousServerData(request, env);
     if (url.pathname === '/api/admin/notifications' && request.method === 'POST') return createManualNotification(request, env);
     if (url.pathname === '/api/feedback/issues' && request.method === 'GET') return feedbackIssues(request, env);

@@ -112,3 +112,8 @@ Avoid redundant Zman explanatory copy above or below the filter card. The select
 The dashboard is assembled from legacy split HTML plus `dashboard-navigation.snippet.js`. Any structural enhancement must be verified against the final rendered dashboard, not just syntax-checked. The build must fail unless the final HTML contains `dashboard-filters`, `chaburaRegion`, and `chabura`.
 
 Announcements/composer administration no longer belongs in this repository. Keep Analytics focused on diagnostics, feedback, notification delivery/read state, and shared push/reminder storage. Dedicated announcement administration lives in `scp-study-announcements`.
+
+
+## Reminder status API
+
+`GET /api/reminders/next?installationId=...&zman=...` is the Study UI's source of truth for the next daily reminder. It must use the same timezone, Israel/Diaspora, approximate-location, sunset/tzeit, Shabbat, and Yom Tov rules as the scheduled sender. Do not duplicate holiday logic in the Study browser.
