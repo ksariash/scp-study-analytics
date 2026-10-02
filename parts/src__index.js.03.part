@@ -141,6 +141,7 @@
 async function dashboardResourceSummary(request, env) {
   await ensureChaburaStorage(env);
   const url = new URL(request.url);
+  if (!url.searchParams.get('zman') && !url.searchParams.get('cohort')) url.searchParams.set('zman', CURRENT_ZMAN);
   let catalog;
   try { catalog = catalogForZman(url.searchParams.get('zman') || url.searchParams.get('cohort') || CURRENT_ZMAN); }
   catch (error) { return jsonResponse({ error:error.message === 'Unsupported zman' ? 'Select a supported zman' : error.message }, { status:400 }); }
@@ -215,6 +216,7 @@ function parseIdArray(value) {
 async function dashboardEssaySummary(request, env) {
   await ensureChaburaStorage(env);
   const url = new URL(request.url);
+  if (!url.searchParams.get('zman') && !url.searchParams.get('cohort')) url.searchParams.set('zman', CURRENT_ZMAN);
   let catalog;
   try { catalog = catalogForZman(url.searchParams.get('zman') || url.searchParams.get('cohort') || CURRENT_ZMAN); }
   catch (error) { return jsonResponse({ error: error.message === 'Unsupported zman' ? 'Select a supported zman' : error.message }, { status: 400 }); }
