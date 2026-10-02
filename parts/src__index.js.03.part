@@ -138,6 +138,35 @@
 }
 
 
+async function dashboardResourceSummary(request, env) {
+  await ensureChaburaStorage(env);
+  const url = new URL(request.url);
+  let catalog;
+  try { catalog = catalogForZman(url.searchParams.get('zman') || url.searchParams.get('cohort') || CURRENT_ZMAN); }
+  catch (error) { return jsonResponse({ error:error.message === 'Unsupported zman' ? 'Select a supported zman' : error.message }, { status:400 }); }
+  const { where, params } = queryFilter(url);
+  const [totalsResult, rowsResult, glossary] = await Promise.all([
+    stmt(env, \`SELECT resource_type, COUNT(*) uses, COUNT(DISTINCT installation_id) learners FROM resource_events \${where} GROUP BY resource_type\`, params).all(),
+    stmt(env, \`SELECT resource_type, resource_id, MAX(resource_label) label, MAX(resource_variant) variant, MAX(page) page,
+      COUNT(*) uses, COUNT(DISTINCT installation_id) learners, MIN(received_at) first_seen, MAX(received_at) last_seen
+      FROM resource_events \${where} GROUP BY resource_type, resource_id ORDER BY uses DESC\`, params).all(),
+    stmt(env, \`SELECT COUNT(*) uses, COUNT(DISTINCT installation_id) learners FROM glossary_events \${where}\`, params).first()
+  ]);
+  const totals = { audio:{uses:0,learners:0}, notes:{uses:0,learners:0}, glossary:{uses:Number(glossary?.uses)||0,learners:Number(glossary?.learners)||0} };
+  for (const row of resultsOf(totalsResult)) {
+    if (totals[row.resource_type]) totals[row.resource_type] = { uses:Number(row.uses)||0, learners:Number(row.learners)||0 };
+  }
+  const resources = resultsOf(rowsResult).map(row => ({
+    type:row.resource_type, id:row.resource_id, label:row.label, variant:row.variant||null, page:Number(row.page)||null,
+    uses:Number(row.uses)||0, learners:Number(row.learners)||0, firstSeen:row.first_seen||null, lastSeen:row.last_seen||null
+  }));
+  return jsonResponse({
+    generatedAt:new Date().toISOString(), zman:catalog.zman, totals,
+    audio:resources.filter(row => row.type === 'audio'), notes:resources.filter(row => row.type === 'notes'),
+    note:'Detailed audio-file and note-page tracking begins with Study v58. Glossary opens include earlier tracked glossary events.'
+  });
+}
+
 function essayAnalyticsFilter(url) {
   const clauses = [];
   const params = [];
@@ -187,7 +216,7 @@ async function dashboardEssaySummary(request, env) {
   await ensureChaburaStorage(env);
   const url = new URL(request.url);
   let catalog;
-  try { catalog = catalogForZman(url.searchParams.get('zman') || url.searchParams.get('cohort')); }
+  try { catalog = catalogForZman(url.searchParams.get('zman') || url.searchParams.get('cohort') || CURRENT_ZMAN); }
   catch (error) { return jsonResponse({ error: error.message === 'Unsupported zman' ? 'Select a supported zman' : error.message }, { status: 400 }); }
   const essayCatalog = catalog.essays;
   const essayMap = catalog.essayMap;
@@ -323,9 +352,10 @@ export default {
       return cors ? new Response(null, { status: 204, headers: cors }) : new Response(null, { status: 403 });
     }
     if (request.method === 'POST' && url.pathname === '/api/events') return ingestEvents(request, env);
-    if (request.method === 'GET' && url.pathname === '/api/health') return jsonResponse({ ok: true, service: 'scp-study-analytics', version: 19 });
+    if (request.method === 'GET' && url.pathname === '/api/health') return jsonResponse({ ok: true, service: 'scp-study-analytics', version: 20 });
     if (request.method === 'GET' && url.pathname === '/api/options') return dashboardOptions(env);
     if (request.method === 'GET' && url.pathname === '/api/summary') return dashboardSummary(request, env);
+    if (request.method === 'GET' && url.pathname === '/api/resource-summary') return dashboardResourceSummary(request, env);
     if (request.method === 'GET' && url.pathname === '/api/essay-summary') return dashboardEssaySummary(request, env);
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/dashboard')) return dashboardResponse();
     return new Response('Not found', { status: 404, headers: { 'X-Robots-Tag': 'noindex, nofollow' } });
