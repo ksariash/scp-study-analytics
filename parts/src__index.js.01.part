@@ -260,7 +260,7 @@ async function ensureGlossaryTable(env) {
 let resourceTableReady = false;
 async function ensureResourceTable(env) {
   if (resourceTableReady) return;
-  await env.DB.prepare(\`CREATE TABLE IF NOT EXISTS resource_events (
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS resource_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT, client_event_id TEXT NOT NULL UNIQUE, installation_id TEXT NOT NULL,
     cohort TEXT NOT NULL, app_version TEXT, chabura TEXT, chabura_region TEXT, client_ts TEXT,
     received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -269,7 +269,7 @@ async function ensureResourceTable(env) {
     category TEXT, mode TEXT NOT NULL CHECK (mode IN ('study','test')),
     country TEXT, region TEXT, region_code TEXT, city TEXT, timezone TEXT, metro_code TEXT,
     latitude_rounded REAL, longitude_rounded REAL
-  )\`).run();
+  )`).run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_resource_received_at ON resource_events(received_at)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_resource_cohort ON resource_events(cohort)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_resource_type_id ON resource_events(resource_type,resource_id)').run();
