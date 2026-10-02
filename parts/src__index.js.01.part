@@ -8,17 +8,19 @@ const ESSAY_FACT_MAP = new Map();
 for (const essay of ESSAY_CATALOG) {
   for (const fact of essay.facts || []) ESSAY_FACT_MAP.set(String(fact.id), { essay, fact });
 }
-const ANALYTICS_COHORT_REGISTRY = null;
+const ANALYTICS_ZMAN_REGISTRY = null;
 const RESPONSE_BUCKETS = new Set(['<10s', '10–29s', '30–59s', '1–2m', '2–5m', '5m+']);
 const MODES = new Set(['study', 'test']);
 const RESULTS = new Set(['correct', 'partial', 'incorrect']);
 const GLOSSARY_SOURCES = new Set(['question', 'materials', 'other']);
 const ESSAY_SOURCES = new Set(['adaptive', 'library', 'retry', 'next']);
-const LEGACY_COHORT = 'SCP 2026 Summer';
-const CURRENT_COHORT = String(ANALYTICS_COHORT_REGISTRY?.defaultAnalyticsKey || "Nat Bar Nat & Stam Ye'enam - Summer 26");
-const SUPPORTED_COHORTS = new Set((ANALYTICS_COHORT_REGISTRY?.cohorts || []).map(cohort => String(cohort.analyticsKey || '')).filter(Boolean));
+const CURRENT_ZMAN = String(ANALYTICS_ZMAN_REGISTRY?.defaultZmanId || '2026-summer');
+const ZMAN_OPTIONS = Array.isArray(ANALYTICS_ZMAN_REGISTRY?.zmanim) ? ANALYTICS_ZMAN_REGISTRY.zmanim : [];
+const SUPPORTED_ZMANIM = new Set(ZMAN_OPTIONS.map(zman => String(zman.id || '')).filter(Boolean));
+const LEGACY_ZMAN_KEYS = new Set(ZMAN_OPTIONS.flatMap(zman => Array.isArray(zman.legacyKeys) ? zman.legacyKeys : []).map(String));
+const CURRENT_COHORT = CURRENT_ZMAN; // legacy D1 column name
 const FILTER_FIELDS = new Map([
-  ['chaburaRegion', 'chabura_region'], ['chabura', 'chabura'], ['cohort', 'cohort'], ['category', 'category'], ['mode', 'mode'], ['country', 'country'], ['region', 'region'], ['city', 'city']
+  ['chaburaRegion', 'chabura_region'], ['chabura', 'chabura'], ['zman', 'cohort'], ['cohort', 'cohort'], ['category', 'category'], ['mode', 'mode'], ['country', 'country'], ['region', 'region'], ['city', 'city']
 ]);
 
 function text(value, max = 120) {
@@ -27,23 +29,31 @@ function text(value, max = 120) {
   return s ? s.slice(0, max) : null;
 }
 
-function normalizeCohort(value) {
-  const cohort = text(value, 100);
-  return cohort === LEGACY_COHORT ? CURRENT_COHORT : cohort;
+function normalizeZman(value) {
+  const zman = text(value, 100);
+  if (!zman) return null;
+  return LEGACY_ZMAN_KEYS.has(zman) ? CURRENT_ZMAN : zman;
 }
+const normalizeCohort = normalizeZman;
 
-function catalogForCohort(value) {
-  const cohort = normalizeCohort(value);
-  if (!cohort || !SUPPORTED_COHORTS.has(cohort)) throw new Error('Unsupported cohort');
-  if (cohort !== CURRENT_COHORT) throw new Error('Cohort catalog is not configured');
+function catalogForZman(value) {
+  const zman = normalizeZman(value);
+  if (!zman || !SUPPORTED_ZMANIM.has(zman)) throw new Error('Unsupported zman');
+  if (zman !== CURRENT_ZMAN) throw new Error('Zman catalog is not configured');
   return {
-    cohort,
+    zman,
+    cohort: zman,
     questions: QUESTION_CATALOG,
     questionMap: QUESTION_MAP,
     essays: ESSAY_CATALOG,
     essayMap: ESSAY_MAP,
     essayFactMap: ESSAY_FACT_MAP
   };
+}
+const catalogForCohort = catalogForZman;
+
+function profileStorageId(zman, installationId) {
+  return `${zman}::${installationId}`;
 }
 
 function boolInt(value) { return value ? 1 : 0; }
@@ -343,8 +353,11 @@ async function ensureChaburaStorage(env) {
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_chabura ON glossary_events(chabura)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_essay_round_chabura ON essay_round_events(chabura)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_essay_pair_chabura ON essay_pairing_events(chabura)').run();
-  for (const table of ['events', 'glossary_events', 'essay_round_events', 'essay_pairing_events', 'learner_profiles']) {
-    await env.DB.prepare(`UPDATE ${table} SET cohort=? WHERE cohort=?`).bind(CURRENT_COHORT, LEGACY_COHORT).run();
+  for (const legacy of LEGACY_ZMAN_KEYS) {
+    if (!legacy || legacy === CURRENT_ZMAN) continue;
+    for (const table of ['events', 'glossary_events', 'essay_round_events', 'essay_pairing_events', 'learner_profiles']) {
+      await env.DB.prepare(`UPDATE ${table} SET cohort=? WHERE cohort=?`).bind(CURRENT_ZMAN, legacy).run();
+    }
   }
   chaburaStorageReady = true;
 }
@@ -362,11 +375,11 @@ function normalizeProfileEvent(raw) {
   if (!raw || typeof raw !== 'object') throw new Error('Invalid profile event');
   const eventId = text(raw.eventId, 100);
   const installationId = text(raw.installationId, 100);
-  const cohort = normalizeCohort(raw.cohort);
+  const cohort = normalizeZman(raw.zman ?? raw.cohort);
   const appVersion = text(raw.appVersion, 32);
   const profile = normalizeChaburaFields(raw, true);
   if (!eventId || !installationId || !cohort) throw new Error('Malformed profile event');
-  catalogForCohort(cohort);
+  catalogForZman(cohort);
   return {
     kind: 'profile', eventId, installationId, cohort, appVersion,
     clientTs: validIsoDate(raw.clientTs), ...profile
@@ -377,8 +390,8 @@ function normalizeEvent(raw) {
   if (!raw || typeof raw !== 'object') throw new Error('Invalid event');
   const eventId = text(raw.eventId, 100);
   const installationId = text(raw.installationId, 100);
-  const cohort = normalizeCohort(raw.cohort);
-  const catalog = catalogForCohort(cohort);
+  const cohort = normalizeZman(raw.zman ?? raw.cohort);
+  const catalog = catalogForZman(cohort);
   const questionId = Number(raw.questionId);
   const q = catalog.questionMap.get(questionId);
   if (!q) throw new Error('Unknown question');
@@ -404,14 +417,14 @@ function normalizeGlossaryEvent(raw) {
   if (!raw || typeof raw !== 'object') throw new Error('Invalid glossary event');
   const eventId = text(raw.eventId, 100);
   const installationId = text(raw.installationId, 100);
-  const cohort = normalizeCohort(raw.cohort);
+  const cohort = normalizeZman(raw.zman ?? raw.cohort);
   const appVersion = text(raw.appVersion, 32);
   const mode = text(raw.mode, 10);
   const sourceRaw = text(raw.source, 20) || 'other';
   const source = GLOSSARY_SOURCES.has(sourceRaw) ? sourceRaw : 'other';
   const termId = text(raw.termId, 80);
   const term = text(raw.term, 140);
-  const catalog = catalogForCohort(cohort);
+  const catalog = catalogForZman(cohort);
   const rawQuestionId = Number(raw.questionId);
   const q = Number.isInteger(rawQuestionId) ? catalog.questionMap.get(rawQuestionId) : null;
   const profile = normalizeChaburaFields(raw);
@@ -433,12 +446,12 @@ function normalizeGlossaryEvent(raw) {
 function normalizeEssayIdentity(raw) {
   const eventId = text(raw.eventId, 100);
   const installationId = text(raw.installationId, 100);
-  const cohort = normalizeCohort(raw.cohort);
+  const cohort = normalizeZman(raw.zman ?? raw.cohort);
   const appVersion = text(raw.appVersion, 32);
   const roundId = text(raw.roundId, 100);
   const sessionId = text(raw.sessionId, 100);
   const essayId = text(raw.essayId, 100);
-  const catalog = catalogForCohort(cohort);
+  const catalog = catalogForZman(cohort);
   const essay = essayId ? catalog.essayMap.get(essayId) : null;
   const profile = normalizeChaburaFields(raw);
   if (!eventId || !installationId || !cohort || !roundId || !sessionId || !essay) throw new Error('Malformed essay event');

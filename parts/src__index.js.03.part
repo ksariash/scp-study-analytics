@@ -142,7 +142,7 @@ function essayAnalyticsFilter(url) {
   const clauses = [];
   const params = [];
   for (const [param, column] of [
-    ['chaburaRegion','chabura_region'], ['chabura','chabura'], ['cohort','cohort'],
+    ['chaburaRegion','chabura_region'], ['chabura','chabura'], ['zman','cohort'], ['cohort','cohort'],
     ['country','country'], ['region','region'], ['city','city']
   ]) {
     const value = text(url.searchParams.get(param), 160);
@@ -187,8 +187,8 @@ async function dashboardEssaySummary(request, env) {
   await ensureChaburaStorage(env);
   const url = new URL(request.url);
   let catalog;
-  try { catalog = catalogForCohort(url.searchParams.get('cohort')); }
-  catch (error) { return jsonResponse({ error: error.message === 'Unsupported cohort' ? 'Select a supported cohort' : error.message }, { status: 400 }); }
+  try { catalog = catalogForZman(url.searchParams.get('zman') || url.searchParams.get('cohort')); }
+  catch (error) { return jsonResponse({ error: error.message === 'Unsupported zman' ? 'Select a supported zman' : error.message }, { status: 400 }); }
   const essayCatalog = catalog.essays;
   const essayMap = catalog.essayMap;
   const essayFactMap = catalog.essayFactMap;
@@ -323,7 +323,7 @@ export default {
       return cors ? new Response(null, { status: 204, headers: cors }) : new Response(null, { status: 403 });
     }
     if (request.method === 'POST' && url.pathname === '/api/events') return ingestEvents(request, env);
-    if (request.method === 'GET' && url.pathname === '/api/health') return jsonResponse({ ok: true, service: 'scp-study-analytics', version: 13 });
+    if (request.method === 'GET' && url.pathname === '/api/health') return jsonResponse({ ok: true, service: 'scp-study-analytics', version: 14 });
     if (request.method === 'GET' && url.pathname === '/api/options') return dashboardOptions(env);
     if (request.method === 'GET' && url.pathname === '/api/summary') return dashboardSummary(request, env);
     if (request.method === 'GET' && url.pathname === '/api/essay-summary') return dashboardEssaySummary(request, env);

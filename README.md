@@ -49,7 +49,7 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 
 - Fixes the chabura schema migration order: existing D1 tables are altered before indexes are created on the new chabura columns, preventing dashboard/API 500s on upgraded databases.
 - Splits the dashboard chabura filter into Chabura Location and Chabura Rav, with the Rav list cascading from the selected location.
-- Reorders filters to Chabura Location, Chabura Rav, Cohort, Topic, Mode, Country, Region, City, From, Through.
+- Reorders filters to Chabura Location, Chabura Rav, Zman, Topic, Mode, Country, Region, City, From, Through.
 
 
 ## Release 9
@@ -60,7 +60,7 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 
 ## Release 10
 
-- Renames the Summer 2026 cohort to `Nat Bar Nat & Stam Ye'enam - Summer 26` and migrates existing analytics rows from the prior cohort label.
+- Renames the Summer 2026 Zman to `Nat Bar Nat & Stam Ye'enam - Summer 26` and migrates existing analytics rows from the prior Zman label.
 
 
 ## Release 11
@@ -70,14 +70,24 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 
 ## Release 12
 
-- Makes Cohort the first and mandatory dashboard dimension. The dashboard always selects a specific cohort; “All cohorts” is removed because cross-cohort question/topic diagnostics are not comparable.
-- Clearing filters preserves the selected cohort.
-- This is the analytics-side foundation for the Study app's cohort package migration.
+- Makes Zman the first and mandatory dashboard dimension. The dashboard always selects a specific Zman; “All Zmans” is removed because cross-Zman question/topic diagnostics are not comparable.
+- Clearing filters preserves the selected Zman.
+- This is the analytics-side foundation for the Study app's Zman package migration.
 
 
 ## Release 13
 
-- Adds a source-controlled analytics cohort registry and rejects events/feedback for unconfigured cohorts instead of interpreting them through the current cohort catalog.
-- Makes the summary and essay-summary APIs require a supported cohort, matching the mandatory dashboard cohort selector.
-- Returns configured cohorts from the options API even before a cohort has activity.
-- Adds LLM maintenance and multi-cohort analytics guides, including an explicit gate that feedback issue identity must become cohort-scoped before a second cohort is enabled.
+- Adds a source-controlled analytics Zman registry and rejects events/feedback for unconfigured Zmans instead of interpreting them through the current Zman catalog.
+- Makes the summary and essay-summary APIs require a supported Zman, matching the mandatory dashboard Zman selector.
+- Returns configured Zmans from the options API even before a Zman has activity.
+- Adds LLM maintenance and multi-Zman analytics guides, including an explicit gate that feedback issue identity must become Zman-scoped before a second Zman is enabled.
+
+
+## Release 14
+
+- Renames the study-period architecture to Zman/Zmanim and uses `2026-summer` as the current backend ID while preserving the full topic/date display name.
+- Normalizes prior Summer 2026 identifiers to `2026-summer`.
+- Fixes the generated-dashboard quoting failure that prevented Analytics v11–v13 from deploying and adds generated JavaScript syntax checks to the build.
+- Isolates chabura profile backfills and feedback issue identity by Zman.
+- Adds D1-backed in-app announcements and targeted issue-resolution notices.
+- Makes the dashboard select the latest configured Zman whenever the URL does not specify one.

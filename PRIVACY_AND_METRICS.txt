@@ -18,3 +18,12 @@ Recorded only as yes/no flags on the answer event. The system does not upload tr
 
 Location
 Derived by Cloudflare from request.cf when the event reaches the analytics Worker. It is approximate IP geolocation, not device GPS. Coordinates are rounded to one decimal place before storage. The dashboard is designed around city/region/country filtering rather than precise positioning.
+
+
+ZMAN
+----
+A Zman is the study period. Analytics stores its stable backend ID (for example 2026-summer). The dashboard displays the descriptive topic/date name.
+
+NOTIFICATIONS
+-------------
+General announcements are not personalized. Issue-resolution notices may be targeted to the anonymous installation ID that submitted the feedback report so the reporting device can see that the issue was addressed. No name or email is required.

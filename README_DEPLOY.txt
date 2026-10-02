@@ -55,3 +55,12 @@ PRIVACY
 The dashboard is public to anyone with the URL and sends noindex/nofollow headers.
 The database stores anonymous installation IDs, question events, broad Cloudflare-derived location, and course metrics.
 It does not store names, email addresses, GPS location, free-form notes, search text, or raw IP addresses.
+
+
+NOTIFICATIONS
+-------------
+In Cloudflare Worker settings, create the encrypted secret NOTIFICATION_ADMIN_TOKEN.
+The Analytics dashboard uses that token to POST announcements to /api/admin/notifications.
+Do not commit the token to GitHub or wrangler.jsonc.
+
+Runtime product terminology is Zman/Zmanim. Existing D1 columns named "cohort" are retained for migration compatibility and store Zman IDs.

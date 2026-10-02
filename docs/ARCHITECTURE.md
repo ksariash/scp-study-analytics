@@ -1,35 +1,48 @@
-# Multi-cohort analytics architecture
+# Multi-Zman analytics architecture
 
 ## Principle
 
-Every diagnostic query must operate inside exactly one cohort. Cohort selection is required before question, topic, essay, glossary, location, or feedback diagnostics are interpreted.
+Every content diagnostic operates inside exactly one Zman. Zman identity is stable and machine-oriented; the display name can remain descriptive.
 
-## Registry
+The current Zman is:
+- ID: `2026-summer`
+- display name: `Nat Bar Nat & Stam Ye'enam - Summer 26`
 
-`analytics-cohorts.json` is the source-controlled allowlist of supported cohorts. Its `analyticsKey` must exactly match the Study cohort package's `analyticsKey`.
+Existing D1 tables retain the historical column name `cohort`; its values are normalized to Zman IDs.
 
-The build embeds this registry into the Worker. Ingestion rejects unknown cohorts. This prevents a future cohort's Question 12 from being interpreted using the current cohort's Question 12 catalog.
+## Registry and latest-Zman behavior
+
+`analytics-zmanim.json` is the source-controlled allowlist. It defines `defaultZmanId`, `latestZmanId`, display metadata, and legacy aliases.
+
+Ingestion rejects unknown Zman IDs. The dashboard reads `zman` from the URL; when absent, it selects `latestZmanId`. Clear Filters preserves the selected Zman.
 
 ## Catalogs
 
-Today there is one current question catalog and one current essay catalog. Runtime access goes through `catalogForCohort()` so the next migration can replace the current single-catalog implementation with per-cohort maps without changing event payloads.
+There is currently one question catalog and one essay catalog. Runtime access goes through `catalogForZman()` so a future Zman can map to its own catalog.
 
-Do not register a second cohort until:
-1. each cohort has its own question and essay catalog modules;
-2. dashboard categories come from the selected cohort;
-3. all question/essay/fact lookups use that selected catalog;
-4. feedback issue/revision/admin-action identity includes cohort.
+Do not register a second live Zman until each Zman has its own question/essay/fact mappings and every content lookup uses the selected Zman.
 
-## Dashboard
+## Learner profile isolation
 
-The Cohort filter is mandatory and first. Clear Filters must preserve it. URLs should preserve cohort so a shared diagnostic link remains meaningful.
+The public anonymous installation ID is stable across Zmanim. The `learner_profiles` table has a legacy single-column primary key, so runtime storage uses an internal `zman::installationId` key. Event backfills use the original installation ID plus Zman.
 
-Cross-cohort reporting, if ever added, should be a separate high-level usage view limited to comparable metrics such as learner counts or event volume. It must not reuse the ordinary question/topic/essay diagnostics.
+This prevents changing a chabura in one Zman from rewriting another Zman's historical events.
 
-## Chabura and geography
+## Feedback identity
 
-As multiple cohorts are added, options for chabura and geographic filters should be filtered by the selected cohort. Do not allow a chabura that exists only in cohort A to appear as if it belongs to cohort B.
+Feedback reports store the Zman ID in the legacy `cohort` column. Issue/revision/admin-action tables predate Zman isolation, so their internal `content_id` is `zman::publicContentId`. API responses strip the prefix.
 
-## Feedback
+This preserves existing D1 tables while making issue identity effectively:
+`zman + content_type + content_id`.
 
-Current feedback reports already store cohort, but legacy issue identity is not yet fully cohort-scoped. This is a launch blocker for a second cohort. Migrate tables and endpoints before enabling the second cohort.
+## Notifications
+
+`app_notifications` stores two kinds of notices:
+- global/Zman announcements;
+- installation-targeted issue-resolution notices.
+
+The Study app polls `GET /api/notifications`. Manual announcement creation is protected by `NOTIFICATION_ADMIN_TOKEN` at `POST /api/admin/notifications`.
+
+## Cross-Zman reporting
+
+Question/topic/essay diagnostics must not aggregate across Zmanim. If a future high-level cross-Zman usage view is added, restrict it to genuinely comparable aggregate measures such as event volume or anonymous learner counts.

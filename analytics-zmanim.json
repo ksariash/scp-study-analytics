@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "defaultZmanId": "2026-summer",
+  "latestZmanId": "2026-summer",
+  "zmanim": [
+    {
+      "id": "2026-summer",
+      "name": "Nat Bar Nat & Stam Ye'enam - Summer 26",
+      "status": "current",
+      "startsOn": "2026-06-01",
+      "catalogMode": "current-root-catalog",
+      "legacyKeys": [
+        "SCP 2026 Summer",
+        "Nat Bar Nat & Stam Ye'enam - Summer 26",
+        "nat-bar-nat-stam-yeinam-summer-26"
+      ]
+    }
+  ]
+}

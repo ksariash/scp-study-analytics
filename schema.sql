@@ -237,3 +237,22 @@ CREATE TABLE IF NOT EXISTS learner_profiles (
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 CREATE INDEX IF NOT EXISTS idx_learner_profiles_chabura ON learner_profiles(chabura);
+
+
+-- Runtime terminology calls cohort a Zman. Existing analytics tables retain the
+-- legacy column name "cohort" for backward-compatible D1 migrations.
+CREATE TABLE IF NOT EXISTS app_notifications (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  zman TEXT,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT,
+  target_installation_id TEXT,
+  content_type TEXT,
+  content_id TEXT,
+  dedupe_key TEXT UNIQUE
+);
+CREATE INDEX IF NOT EXISTS idx_app_notifications_feed ON app_notifications(zman, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_app_notifications_target ON app_notifications(target_installation_id, created_at DESC);

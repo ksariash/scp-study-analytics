@@ -62,11 +62,11 @@
         VALUES (?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))
         ON CONFLICT(installation_id) DO UPDATE SET cohort=excluded.cohort, chabura=excluded.chabura,
           chabura_region=excluded.chabura_region, updated_at=excluded.updated_at`)
-        .bind(profile.installationId, profile.cohort, profile.chabura, profile.chaburaRegion),
-      env.DB.prepare('UPDATE events SET chabura=?, chabura_region=? WHERE installation_id=?').bind(profile.chabura, profile.chaburaRegion, profile.installationId),
-      env.DB.prepare('UPDATE glossary_events SET chabura=?, chabura_region=? WHERE installation_id=?').bind(profile.chabura, profile.chaburaRegion, profile.installationId),
-      env.DB.prepare('UPDATE essay_round_events SET chabura=?, chabura_region=? WHERE installation_id=?').bind(profile.chabura, profile.chaburaRegion, profile.installationId),
-      env.DB.prepare('UPDATE essay_pairing_events SET chabura=?, chabura_region=? WHERE installation_id=?').bind(profile.chabura, profile.chaburaRegion, profile.installationId)
+        .bind(profileStorageId(profile.cohort, profile.installationId), profile.cohort, profile.chabura, profile.chaburaRegion),
+      env.DB.prepare('UPDATE events SET chabura=?, chabura_region=? WHERE installation_id=? AND cohort=?').bind(profile.chabura, profile.chaburaRegion, profile.installationId, profile.cohort),
+      env.DB.prepare('UPDATE glossary_events SET chabura=?, chabura_region=? WHERE installation_id=? AND cohort=?').bind(profile.chabura, profile.chaburaRegion, profile.installationId, profile.cohort),
+      env.DB.prepare('UPDATE essay_round_events SET chabura=?, chabura_region=? WHERE installation_id=? AND cohort=?').bind(profile.chabura, profile.chaburaRegion, profile.installationId, profile.cohort),
+      env.DB.prepare('UPDATE essay_pairing_events SET chabura=?, chabura_region=? WHERE installation_id=? AND cohort=?').bind(profile.chabura, profile.chaburaRegion, profile.installationId, profile.cohort)
     ];
     await env.DB.batch(profileStatements);
   }
@@ -104,17 +104,20 @@ async function dashboardOptions(env) {
     location: row.chabura_region,
     rav: row.chabura
   }));
-  const configured = (ANALYTICS_COHORT_REGISTRY?.cohorts || []).map(cohort => String(cohort.analyticsKey || '')).filter(Boolean);
-  const observed = resultsOf(cohorts).map(x => x.cohort).filter(Boolean);
+  const configured = ZMAN_OPTIONS.map(zman => String(zman.id || '')).filter(Boolean);
+  const observed = resultsOf(cohorts).map(x => normalizeZman(x.cohort)).filter(Boolean);
+  const latestZmanId = String(ANALYTICS_ZMAN_REGISTRY?.latestZmanId || ANALYTICS_ZMAN_REGISTRY?.defaultZmanId || configured[0] || '');
   return jsonResponse({
     cohorts: [...new Set([...configured, ...observed])],
-    configuredCohorts: ANALYTICS_COHORT_REGISTRY?.cohorts || [],
+    zmanim: [...new Set([...configured, ...observed])],
+    zmanOptions: ZMAN_OPTIONS.map(zman => ({ id:String(zman.id), name:String(zman.name || zman.id), status:zman.status || '', startsOn:zman.startsOn || null })),
+    latestZmanId,
     chaburaLocations: [...new Set(profiles.map(x => x.location).filter(Boolean))],
     chaburaProfiles: profiles,
     chaburos: [...new Set(profiles.map(x => x.rav).filter(Boolean))],
     locations: resultsOf(locations),
     categories: [...new Set(QUESTION_CATALOG.map(q => q.category))],
-    categoriesByCohort: { [CURRENT_COHORT]: [...new Set(QUESTION_CATALOG.map(q => q.category))] }
+    categoriesByZman: { [CURRENT_ZMAN]: [...new Set(QUESTION_CATALOG.map(q => q.category))] }
   });
 }
 
@@ -126,8 +129,8 @@ function combineRows(primary, secondary, key = 'category') {
 async function dashboardSummary(request, env) {
   const url = new URL(request.url);
   let catalog;
-  try { catalog = catalogForCohort(url.searchParams.get('cohort')); }
-  catch (error) { return jsonResponse({ error: error.message === 'Unsupported cohort' ? 'Select a supported cohort' : error.message }, { status: 400 }); }
+  try { catalog = catalogForZman(url.searchParams.get('zman') || url.searchParams.get('cohort')); }
+  catch (error) { return jsonResponse({ error: error.message === 'Unsupported zman' ? 'Select a supported zman' : error.message }, { status: 400 }); }
   const questionMap = catalog.questionMap;
   const questionCatalog = catalog.questions;
   const { where, params } = queryFilter(url);

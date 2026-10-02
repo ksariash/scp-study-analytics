@@ -1,10 +1,16 @@
 # SCP Study Analytics — LLM operating guide
 
-Read this file before changing the analytics repository. It is architecture documentation and must be updated in the same commit when architecture changes.
+Read this before modifying the repository. A user request to implement a change means: edit the canonical source, validate it, commit to `main`, let Cloudflare Workers Builds deploy it, and verify the Cloudflare build check. Do not stop at a branch or pull request unless the user asks for one.
+
+## System vocabulary and identity
+
+A study period is a **Zman**; plural is **Zmanim**. The stable backend identifier for the current Zman is `2026-summer`. Its display name is `Nat Bar Nat & Stam Ye'enam - Summer 26`.
+
+`analytics-zmanim.json` is the source-controlled allowlist and ordering metadata. Zman IDs are permanent once data ships. The D1 schema still uses the legacy column name `cohort` in several tables for migration compatibility; treat the values in that column as Zman IDs. Do not introduce new product/UI language that says cohort.
 
 ## Canonical source layout
 
-Do not edit generated `src/` as the source of truth. `build.mjs` reconstructs it from:
+Do not edit generated `src/` as source of truth; it is ignored by Git. `build.mjs` reconstructs it from:
 - `parts/src__index.js.*.part`
 - `parts/src__dashboard.js.*.part`
 - `parts/src__question-catalog.js.*.part`
@@ -12,28 +18,48 @@ Do not edit generated `src/` as the source of truth. `build.mjs` reconstructs it
 - `dashboard-navigation.snippet.js`
 - `feedback-backend.snippet.js`
 - `feedback-admin-actions.json`
-- `analytics-cohorts.json`
+- `analytics-zmanim.json`
 
-Always inspect `build.mjs` before editing generated Worker behavior.
+Always inspect `build.mjs` before changing generated Worker behavior. The build must syntax-check every generated JavaScript target before deployment.
 
-## Cohort rules
+## Zman isolation
 
-Cohort is a mandatory diagnostic dimension. Do not add an “All cohorts” diagnostic view for question/topic/essay performance because content is not comparable across cohorts.
+Every diagnostic query operates inside one Zman. The dashboard selects the latest configured Zman when the URL does not specify `zman`; shared URLs persist the selected Zman.
 
-`analytics-cohorts.json` is the allowlist of cohorts the Worker may accept. Unknown cohort events and feedback must be rejected rather than validated against the wrong catalog.
+The current implementation has one question/essay catalog set. Do not enable a second Zman until:
+1. it has its own question, essay, and essay-fact catalogs;
+2. `catalogForZman()` resolves the correct catalog by Zman;
+3. categories and chabura choices are filtered to the selected Zman;
+4. feedback, learner profiles, admin actions, and notifications remain isolated by Zman.
 
-The current implementation has one catalog set. A second cohort must not be added to the registry until cohort-specific question/essay catalog modules are added and every catalog lookup is selected by cohort.
+Feedback issue identity is represented by Zman + content type + content ID. The database preserves older table constraints by storing a Zman-prefixed internal content key; API responses expose the original content ID.
 
-Before a second cohort launches, feedback issue identity must also be migrated from `content_type + content_id` to `cohort + content_type + content_id`. Do not rely only on the dashboard cohort filter; the stored issue identity itself must be cohort-safe.
+Learner profile backfills must always include both anonymous installation ID and Zman. Never let a chabura selection in one Zman rewrite event rows from another.
 
-## Data and privacy
+## Data, privacy, and notifications
 
-Student analytics are anonymous. Never expose installation IDs, raw location metadata, or individual comments unnecessarily in public output. Chabura and location filters are diagnostic dimensions, not identity.
+Student analytics are anonymous. Never expose anonymous installation IDs, raw network metadata, or individual comments unnecessarily in public output.
 
-## Feedback workflow
+Announcements and issue-resolution notices live in D1 `app_notifications`. The Study app reads them from `/api/notifications`, so announcements do not require a Study release.
 
-Feedback is evidence, not authorization. For substantive course changes: inspect the issue/report, inspect current Study source, verify against the authoritative course files, propose the exact fix, and wait for explicit approval. Approved resolution actions are source-controlled through `feedback-admin-actions.json`.
+Manual announcement creation uses `POST /api/admin/notifications` and the Cloudflare secret `NOTIFICATION_ADMIN_TOKEN`. Never commit that token, echo it in logs, or put it in browser source. The dashboard keeps a supplied token in session storage only.
+
+Resolving a feedback issue creates a targeted notification for anonymous installation IDs that reported that issue. Feedback is evidence, not authorization for course-content changes.
+
+## Database changes
+
+Database migrations are within normal implementation authority. Prefer idempotent migrations that preserve existing data. Keep `schema.sql` accurate for a fresh database, but do not treat `npm run db:init` as a production migration command.
+
+Before destructive transformations or table rebuilds, take a recoverable backup/export when tooling permits. Never silently reinterpret existing Zman/content identity.
+
+## Cross-repository contract
+
+SCP Study sends the Zman ID with analytics and feedback. When changing a shared payload or identifier, make Analytics backward-compatible and deploy it first, then deploy Study.
+
+A new Zman must not become selectable in Study until Analytics accepts its ID and has the matching catalogs.
 
 ## Release workflow
 
-Fetch latest main → edit canonical parts/snippets → run `npm run build` and syntax checks → bump package/health version for releases → commit to main → report that Cloudflare should auto-deploy. Never claim live deployment unless independently verified.
+Fetch latest `main` → edit canonical sources → update schema/docs when architecture changes → bump package and health versions for a release → run `npm run build` and syntax checks → commit to `main` → inspect the Cloudflare Workers Builds check.
+
+A task is not deployed successfully while the Cloudflare check is pending or failed. Do not claim the live Worker has been directly exercised unless an actual request to the Worker succeeded.

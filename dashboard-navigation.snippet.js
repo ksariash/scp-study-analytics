@@ -146,6 +146,12 @@ body[id="top"]{scroll-margin-top:0}
     '</section>';
 
 
+
+  const announcementSection =
+    '<section class="section" id="announcements-admin" style="margin-top:14px">' +
+      '<div class="section-head"><div class="headcopy"><h2>Announcements</h2><span>Send in-app notices without rebuilding SCP Study</span></div></div>' +
+      '<div style="display:grid;gap:8px"><input id="announcementToken" type="password" placeholder="Notification admin token"><select id="announcementZman"><option value="all">All Zmanim</option></select><input id="announcementTitle" maxlength="120" placeholder="Announcement title"><textarea id="announcementBody" maxlength="1200" placeholder="Announcement text" style="min-height:76px"></textarea><div><button class="primary" id="sendAnnouncement" type="button">Send announcement</button> <span id="announcementStatus"></span></div></div></section>';
+
   const essaySection =
     '<section class="section" id="essay-analytics" style="margin-top:14px">' +
       '<div class="section-head"><div class="headcopy"><h2>Essay analytics</h2><span>Practice diagnostics for essay rounds and atomic name/concept → position pairings</span></div></div>' +
@@ -228,7 +234,7 @@ body[id="top"]{scroll-margin-top:0}
     if (showResolved.checked || statusFilter.value === 'resolved') p.set('includeResolved', '1');
     [['cohort','cohort'],['category','category'],['from','from'],['to','to']].forEach(([id,key]) => {
       const el = document.getElementById(id);
-      if (el?.value) p.set(key, el.value);
+      if (el?.value) p.set(key==='cohort'?'zman':key, el.value);
     });
     return p;
   }
@@ -240,7 +246,7 @@ body[id="top"]{scroll-margin-top:0}
   }
 
   function detailUrl(issue) {
-    return '/feedback-detail?type=' + encodeURIComponent(issue.contentType) + '&id=' + encodeURIComponent(issue.contentId);
+    return '/feedback-detail?zman=' + encodeURIComponent(issue.zman || document.getElementById('cohort')?.value || '') + '&type=' + encodeURIComponent(issue.contentType) + '&id=' + encodeURIComponent(issue.contentId);
   }
 
   function renderFeedbackIssues(issues) {
@@ -318,7 +324,7 @@ body[id="top"]{scroll-margin-top:0}
     const p = new URLSearchParams();
     ['cohort','chaburaRegion','chabura','country','region','city','from','to'].forEach(id => {
       const el = document.getElementById(id);
-      if (el?.value) p.set(id, el.value);
+      if (el?.value) p.set(id==='cohort'?'zman':id, el.value);
     });
     return p;
   }
@@ -467,13 +473,43 @@ body[id="top"]{scroll-margin-top:0}
     '    <button class="clear" id="clearFilters" type="button">Clear filters</button>\n' +
     '  </section>';
 
+
+  const announcementBehavior = `
+<script id="dashboardAnnouncementScript">
+(async function(){
+  const token=document.getElementById('announcementToken');
+  const zman=document.getElementById('announcementZman');
+  const title=document.getElementById('announcementTitle');
+  const body=document.getElementById('announcementBody');
+  const send=document.getElementById('sendAnnouncement');
+  const status=document.getElementById('announcementStatus');
+  token.value=sessionStorage.getItem('scpNotificationAdminToken')||'';
+  token.addEventListener('change',function(){sessionStorage.setItem('scpNotificationAdminToken',token.value)});
+  try {
+    const response=await fetch('/api/options',{cache:'no-store'});
+    const data=await response.json();
+    (data.zmanOptions||[]).forEach(function(item){const option=document.createElement('option');option.value=item.id;option.textContent=item.name||item.id;zman.appendChild(option)});
+    if(data.latestZmanId) zman.value=data.latestZmanId;
+  } catch (_) {}
+  send.addEventListener('click', async function(){
+    status.textContent='Sending…';
+    try {
+      const response=await fetch('/api/admin/notifications',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token.value},body:JSON.stringify({zman:zman.value,title:title.value,body:body.value})});
+      const data=await response.json();
+      if(!response.ok) throw new Error(data.error||'Could not send');
+      status.textContent='Sent.'; title.value=''; body.value='';
+    } catch (error) { status.textContent=error.message; }
+  });
+})();
+</script>`;
+
   return html
     .replace('<body>', '<body id="top">')
     .replace(originalFilters, reorderedFilters)
     .replace("const filters=['cohort','country','region','city','category','mode','from','to'];", "const filters=['cohort','chaburaRegion','chabura','category','mode','country','region','city','from','to'];")
-    .replace("function query(){", "function cascadeChabura(){if(!options)return;const location=$('chaburaRegion').value,rav=$('chabura').value;const profiles=options.chaburaProfiles||[];const ravs=[...new Set(profiles.filter(x=>!location||x.location===location).map(x=>x.rav).filter(Boolean))].sort();fillSelect('chabura',ravs);if(rav&&ravs.includes(rav))$('chabura').value=rav};function query(){")
-    .replace("function applyUrlFilters(){const p=new URLSearchParams(location.search);filters.forEach(id=>{const v=p.get(id);if(v!==null)$(id).value=v});cascadeLocation();", "function applyUrlFilters(){const p=new URLSearchParams(location.search);filters.forEach(id=>{const v=p.get(id);if(v!==null)$(id).value=v});cascadeChabura();cascadeLocation();")
-    .replace("async function init(){try{options=await getJSON('/api/options');fillSelect('cohort',options.cohorts||[]);fillSelect('country'", "async function init(){try{options=await getJSON('/api/options');fillSelect('chaburaRegion',options.chaburaLocations||[]);cascadeChabura();fillSelect('cohort',options.cohorts||[]);const cohortValues=options.cohorts||[];const requestedCohort=new URLSearchParams(location.search).get('cohort');if(requestedCohort&&cohortValues.includes(requestedCohort))$('cohort').value=requestedCohort;else if(cohortValues.includes(\"Nat Bar Nat & Stam Ye'enam - Summer 26\"))$('cohort').value=\"Nat Bar Nat & Stam Ye'enam - Summer 26\";else if(cohortValues.length)$('cohort').value=cohortValues[0];fillSelect('country'")
+    .replace("function query(){const q=new URLSearchParams();filters.forEach(id=>{const v=$(id).value;if(v)q.set(id,v)});return q.toString()}", "function cascadeChabura(){if(!options)return;const location=$('chaburaRegion').value,rav=$('chabura').value;const profiles=options.chaburaProfiles||[];const ravs=[...new Set(profiles.filter(x=>!location||x.location===location).map(x=>x.rav).filter(Boolean))].sort();fillSelect('chabura',ravs);if(rav&&ravs.includes(rav))$('chabura').value=rav};function query(){const q=new URLSearchParams();filters.forEach(id=>{const v=$(id).value;if(v)q.set(id==='cohort'?'zman':id,v)});return q.toString()}")
+    .replace("function applyUrlFilters(){const p=new URLSearchParams(location.search);filters.forEach(id=>{const v=p.get(id);if(v!==null)$(id).value=v});cascadeLocation();", "function applyUrlFilters(){const p=new URLSearchParams(location.search);filters.forEach(id=>{const v=id==='cohort'?(p.get('zman')||p.get('cohort')):p.get(id);if(v!==null)$(id).value=v});cascadeChabura();cascadeLocation();")
+    .replace("async function init(){try{options=await getJSON('/api/options');fillSelect('cohort',options.cohorts||[]);fillSelect('country'", "async function init(){try{options=await getJSON('/api/options');fillSelect('chaburaRegion',options.chaburaLocations||[]);cascadeChabura();fillSelect('cohort',options.zmanOptions||[],x=>x.name||x.id,x=>x.id);const p=new URLSearchParams(location.search),requested=p.get('zman')||p.get('cohort');if(requested&&[...$('cohort').options].some(o=>o.value===requested))$('cohort').value=requested;else if(options.latestZmanId)$('cohort').value=options.latestZmanId;fillSelect('country'")
     .replace("filters.forEach(id=>$(id).addEventListener('change',()=>{if(id==='country'||id==='region')cascadeLocation();loadSummary()}));", "filters.forEach(id=>$(id).addEventListener('change',()=>{if(id==='chaburaRegion')cascadeChabura();if(id==='country'||id==='region')cascadeLocation();loadSummary()}));")
     .replace("$('clearFilters').addEventListener('click',()=>{filters.forEach(id=>$(id).value='');cascadeLocation();loadSummary()});", "$('clearFilters').addEventListener('click',()=>{filters.filter(id=>id!=='cohort').forEach(id=>$(id).value='');cascadeChabura();cascadeLocation();loadSummary()});")
     .replace('<h2>Needs review</h2>', '<h2 id="needs-review">Needs review</h2>')
@@ -481,12 +517,12 @@ body[id="top"]{scroll-margin-top:0}
     .replace('<h2>Topics needing review</h2>', '<h2 id="topics-review">Topics needing review</h2>')
     .replace('<h2>Where students are studying</h2>', '<h2 id="locations-review">Where students are studying</h2>')
     .replace('<h2>Glossary term attention</h2>', '<h2 id="glossary-attention">Glossary term attention</h2>')
-    .replace('<section class="section" style="margin-top:14px"><div class="section-head"><div class="headcopy"><h2>Question diagnostics</h2>', essaySection + feedbackSection + '<section class="section" style="margin-top:14px"><div class="section-head"><div class="headcopy"><h2>Question diagnostics</h2>')
+    .replace('<section class="section" style="margin-top:14px"><div class="section-head"><div class="headcopy"><h2>Question diagnostics</h2>', announcementSection + essaySection + feedbackSection + '<section class="section" style="margin-top:14px"><div class="section-head"><div class="headcopy"><h2>Question diagnostics</h2>')
     .replace('<h2>Question diagnostics</h2>', '<h2 id="questions-diagnostics">Question diagnostics</h2>')
     .replace('<h2>Activity over time</h2>', '<h2 id="activity-over-time">Activity over time</h2>')
     .replace('<section class="overview" id="overview"></section>', inlineNav + '<section class="overview" id="overview"></section>')
     .replace('</head>', styles + '</head>')
-    .replace('</body>', floatingNav + behavior + feedbackBehavior + essayBehavior + '</body>');
+    .replace('</body>', floatingNav + behavior + feedbackBehavior + essayBehavior + announcementBehavior + '</body>');
 }
 
 export const DASHBOARD_HTML = enhanceDashboardHtml(__DASHBOARD_BASE_HTML);

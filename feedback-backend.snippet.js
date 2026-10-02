@@ -2,6 +2,14 @@ const FEEDBACK_TYPES = new Set(['question', 'essay_prompt', 'essay_pairing']);
 const FEEDBACK_REASONS = new Set(['confusing', 'inaccurate', 'wording', 'incomplete', 'notes_link', 'audio_link', 'other']);
 const FEEDBACK_STATUSES = new Set(['new', 'tracking', 'resolved', 'reopened']);
 let feedbackTablesReady = false;
+let notificationTablesReady = false;
+
+function feedbackStorageId(zman, contentId) { return `${zman}::${contentId}`; }
+function feedbackPublicId(contentId) {
+  const value = String(contentId || '');
+  const index = value.indexOf('::');
+  return index >= 0 ? value.slice(index + 2) : value;
+}
 
 function feedbackHash(value) {
   let hash = 2166136261;
@@ -108,7 +116,16 @@ async function ensureFeedbackTables(env) {
     result_status TEXT,
     result_note TEXT
   )`).run();
-  await env.DB.prepare('UPDATE feedback_reports SET cohort=? WHERE cohort=?').bind(CURRENT_COHORT, LEGACY_COHORT).run();
+  for (const legacy of LEGACY_ZMAN_KEYS) {
+    if (legacy && legacy !== CURRENT_ZMAN) {
+      await env.DB.prepare('UPDATE feedback_reports SET cohort=? WHERE cohort=?').bind(CURRENT_ZMAN, legacy).run();
+    }
+  }
+  const prefix = CURRENT_ZMAN + '::';
+  await env.DB.prepare("UPDATE feedback_reports SET content_id=? || content_id WHERE cohort=? AND instr(content_id,'::')=0").bind(prefix, CURRENT_ZMAN).run();
+  await env.DB.prepare("UPDATE feedback_issues SET content_id=? || content_id WHERE instr(content_id,'::')=0").bind(prefix).run();
+  await env.DB.prepare("UPDATE feedback_revisions SET content_id=? || content_id WHERE instr(content_id,'::')=0").bind(prefix).run();
+  await env.DB.prepare("UPDATE feedback_admin_actions SET content_id=? || content_id WHERE instr(content_id,'::')=0").bind(prefix).run();
   feedbackTablesReady = true;
 }
 
@@ -116,11 +133,12 @@ function normalizeFeedbackReport(raw) {
   if (!raw || typeof raw !== 'object') throw new Error('Invalid feedback');
   const eventId = text(raw.eventId, 100);
   const installationId = text(raw.installationId, 100);
-  const cohort = normalizeCohort(raw.cohort);
-  catalogForCohort(cohort);
+  const cohort = normalizeZman(raw.zman ?? raw.cohort);
+  catalogForZman(cohort);
   const appVersion = text(raw.appVersion, 32);
   const contentType = text(raw.contentType, 32);
-  const contentId = text(raw.contentId, 100);
+  const rawContentId = text(raw.contentId, 100);
+  const contentId = rawContentId ? feedbackStorageId(cohort, rawContentId) : null;
   const parentId = text(raw.parentId, 100);
   const title = text(raw.title, 240);
   const category = text(raw.category, 180);
@@ -232,7 +250,7 @@ function feedbackIssueFilters(url) {
   const params = [];
   const type = text(url.searchParams.get('type'), 32);
   const reason = text(url.searchParams.get('reason'), 32);
-  const cohort = text(url.searchParams.get('cohort'), 100);
+  const cohort = normalizeZman(url.searchParams.get('zman') || url.searchParams.get('cohort'));
   const category = text(url.searchParams.get('category'), 180);
   const search = text(url.searchParams.get('search'), 120);
   const from = text(url.searchParams.get('from'), 10);
@@ -263,7 +281,7 @@ async function feedbackIssues(request, env) {
   const url = new URL(request.url);
   const { where, params } = feedbackIssueFilters(url);
   const rows = await env.DB.prepare(`SELECT
-      i.content_type, i.content_id, i.parent_id, i.title, i.category, i.status,
+      r.cohort, i.content_type, i.content_id, i.parent_id, i.title, i.category, i.status,
       i.first_report_at, i.last_report_at, i.report_count total_reports, i.last_wording,
       i.updated_wording, i.resolution_note, i.resolved_at,
       COUNT(r.id) matching_reports,
@@ -278,7 +296,7 @@ async function feedbackIssues(request, env) {
     FROM feedback_issues i
     JOIN feedback_reports r ON r.content_type=i.content_type AND r.content_id=i.content_id
     ${where}
-    GROUP BY i.content_type, i.content_id
+    GROUP BY r.cohort, i.content_type, i.content_id
     ORDER BY CASE i.status WHEN 'reopened' THEN 0 WHEN 'new' THEN 1 WHEN 'tracking' THEN 2 ELSE 3 END,
       matching_reports DESC, i.last_report_at DESC`).bind(...params).all();
 
@@ -286,7 +304,8 @@ async function feedbackIssues(request, env) {
     generatedAt: new Date().toISOString(),
     issues: resultsOf(rows).map(r => ({
       contentType: r.content_type,
-      contentId: r.content_id,
+      contentId: feedbackPublicId(r.content_id),
+      zman: normalizeZman(r.cohort || CURRENT_ZMAN),
       parentId: r.parent_id,
       title: r.title,
       category: r.category,
@@ -317,8 +336,12 @@ async function feedbackDetail(request, env) {
   await ensureFeedbackTables(env);
   const url = new URL(request.url);
   const type = text(url.searchParams.get('type'), 32);
-  const id = text(url.searchParams.get('id'), 100);
-  if (!FEEDBACK_TYPES.has(type) || !id) return jsonResponse({ error: 'Invalid content reference' }, { status: 400 });
+  const zman = normalizeZman(url.searchParams.get('zman') || url.searchParams.get('cohort') || CURRENT_ZMAN);
+  const publicId = text(url.searchParams.get('id'), 100);
+  const id = publicId ? feedbackStorageId(zman, publicId) : null;
+  if (!FEEDBACK_TYPES.has(type) || !id || !SUPPORTED_ZMANIM.has(zman)) {
+    return jsonResponse({ error: 'Invalid content reference' }, { status: 400 });
+  }
 
   const issue = await env.DB.prepare(`SELECT * FROM feedback_issues WHERE content_type=? AND content_id=?`).bind(type, id).first();
   if (!issue) return jsonResponse({ error: 'Issue not found' }, { status: 404 });
@@ -333,7 +356,7 @@ async function feedbackDetail(request, env) {
 
   return jsonResponse({
     issue: {
-      contentType: issue.content_type, contentId: issue.content_id, parentId: issue.parent_id, title: issue.title, category: issue.category,
+      contentType: issue.content_type, contentId: feedbackPublicId(issue.content_id), zman, parentId: issue.parent_id, title: issue.title, category: issue.category,
       status: issue.status, firstReportAt: issue.first_report_at, lastReportAt: issue.last_report_at, reportCount: Number(issue.report_count)||0,
       learners: Number(learners?.learners)||0, lastContentHash: issue.last_content_hash, lastWording: issue.last_wording,
       resolvedAt: issue.resolved_at, resolutionNote: issue.resolution_note, resolvedContentHash: issue.resolved_content_hash,
@@ -344,7 +367,7 @@ async function feedbackDetail(request, env) {
       let context = {};
       try { context = JSON.parse(r.context_json || '{}'); } catch (_) {}
       return {
-        id:r.id, cohort:r.cohort, appVersion:r.app_version, clientTs:r.client_ts, receivedAt:r.received_at,
+        id:r.id, zman:normalizeZman(r.cohort), cohort:normalizeZman(r.cohort), appVersion:r.app_version, clientTs:r.client_ts, receivedAt:r.received_at,
         reason:r.reason, details:r.details, source:r.source, wording:r.wording, contentHash:r.content_hash, context,
         location:[r.city,r.region,r.country].filter(Boolean).join(', ')
       };
@@ -358,7 +381,9 @@ async function feedbackDetail(request, env) {
 async function applyFeedbackStatusChange(env, input, source = 'dashboard') {
   await ensureFeedbackTables(env);
   const type = text(input?.contentType, 32);
-  const id = text(input?.contentId, 100);
+  const zman = normalizeZman(input?.zman || input?.cohort || CURRENT_ZMAN);
+  const publicId = text(input?.contentId, 100);
+  const id = publicId ? feedbackStorageId(zman, publicId) : null;
   const status = text(input?.status, 20);
   const note = text(input?.resolutionNote, 1000);
   const updatedWording = text(input?.updatedWording, 6000);
@@ -390,7 +415,18 @@ async function applyFeedbackStatusChange(env, input, source = 'dashboard') {
     updatedWording || null, null, note || `Status changed to ${status}`, now
   ).run();
 
-  return { ok:true, status, contentType:type, contentId:id, appliedAt:now };
+  if (status === 'resolved') {
+    await createIssueResolvedNotifications(env, {
+      zman,
+      contentType: type,
+      storageContentId: id,
+      publicContentId: publicId,
+      title: issue.title,
+      note,
+      resolvedHash
+    });
+  }
+  return { ok:true, status, zman, contentType:type, contentId:publicId, appliedAt:now };
 }
 
 async function updateFeedbackStatus(request, env) {
@@ -409,6 +445,7 @@ function normalizedAdminActions() {
   const actions = Array.isArray(manifest.actions) ? manifest.actions : [];
   return actions.map(raw => ({
     actionId: text(raw?.actionId, 120),
+    zman: normalizeZman(raw?.zman || raw?.cohort || CURRENT_ZMAN),
     contentType: text(raw?.contentType, 32),
     contentId: text(raw?.contentId, 100),
     status: text(raw?.status, 20),
@@ -416,7 +453,7 @@ function normalizedAdminActions() {
     updatedWording: text(raw?.updatedWording, 6000),
     approvedAt: text(raw?.approvedAt, 40),
     approvalRef: text(raw?.approvalRef, 200)
-  })).filter(action => action.actionId && FEEDBACK_TYPES.has(action.contentType) && action.contentId && FEEDBACK_STATUSES.has(action.status));
+  })).filter(action => action.actionId && SUPPORTED_ZMANIM.has(action.zman) && FEEDBACK_TYPES.has(action.contentType) && action.contentId && FEEDBACK_STATUSES.has(action.status));
 }
 
 async function applyFeedbackAdminActions(env) {
@@ -435,7 +472,7 @@ async function applyFeedbackAdminActions(env) {
       await env.DB.prepare(`INSERT INTO feedback_admin_actions
         (action_id, content_type, content_id, command_json, applied_at, result_status, result_note)
         VALUES (?,?,?,?,?,?,?)`).bind(
-        action.actionId, action.contentType, action.contentId, JSON.stringify(action), result.appliedAt,
+        action.actionId, action.contentType, feedbackStorageId(action.zman, action.contentId), JSON.stringify(action), result.appliedAt,
         result.status, action.resolutionNote || action.approvalRef || 'Approved via source-controlled manifest'
       ).run();
       results.push({ actionId:action.actionId, state:'applied', status:result.status, contentType:action.contentType, contentId:action.contentId });
@@ -452,6 +489,105 @@ async function feedbackAdminSync(env) {
   const pending = result.actions.filter(x => x.state === 'pending').length;
   const alreadyApplied = result.actions.filter(x => x.state === 'already_applied').length;
   return jsonResponse({ ok:true, manifestVersion:result.manifestVersion, applied, pending, alreadyApplied });
+}
+
+
+async function ensureNotificationTables(env) {
+  if (notificationTablesReady) return;
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS app_notifications (id TEXT PRIMARY KEY, kind TEXT NOT NULL, zman TEXT, title TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT, target_installation_id TEXT, content_type TEXT, content_id TEXT, dedupe_key TEXT UNIQUE)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_app_notifications_feed ON app_notifications(zman, created_at DESC)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_app_notifications_target ON app_notifications(target_installation_id, created_at DESC)').run();
+  notificationTablesReady = true;
+}
+
+function notificationCors(request, env) {
+  const origin = request.headers.get('Origin');
+  const allowed = text(env.ALLOWED_ORIGIN, 300);
+  if (!origin || !allowed || origin !== allowed) return null;
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin'
+  };
+}
+
+async function createIssueResolvedNotifications(env, input) {
+  await ensureNotificationTables(env);
+  const reporters = resultsOf(await env.DB.prepare(
+    'SELECT DISTINCT installation_id FROM feedback_reports WHERE cohort=? AND content_type=? AND content_id=?'
+  ).bind(input.zman, input.contentType, input.storageContentId).all());
+  const label = input.title || (input.contentType === 'question' ? 'Question ' + input.publicContentId : 'Reported content');
+  const message = input.note ? label + ': ' + input.note : label + ' was marked resolved by the course team.';
+  const now = new Date().toISOString();
+
+  for (const row of reporters) {
+    const installationId = text(row.installation_id, 100);
+    if (!installationId) continue;
+    const dedupe = ['resolved', input.zman, input.contentType, input.storageContentId, input.resolvedHash || now, installationId].join(':');
+    await env.DB.prepare(
+      'INSERT OR IGNORE INTO app_notifications (id,kind,zman,title,body,created_at,target_installation_id,content_type,content_id,dedupe_key) VALUES (?,?,?,?,?,?,?,?,?,?)'
+    ).bind(
+      crypto.randomUUID(), 'issue_resolved', input.zman, 'Issue addressed', message, now,
+      installationId, input.contentType, input.publicContentId, dedupe
+    ).run();
+  }
+}
+
+async function notificationsFeed(request, env) {
+  await ensureNotificationTables(env);
+  const url = new URL(request.url);
+  const zman = normalizeZman(url.searchParams.get('zman') || url.searchParams.get('cohort') || CURRENT_ZMAN);
+  const installationId = text(url.searchParams.get('installationId'), 100);
+  if (!SUPPORTED_ZMANIM.has(zman)) return jsonResponse({ error:'Unsupported zman' }, { status:400 });
+
+  const rows = await env.DB.prepare(
+    'SELECT id,kind,zman,title,body,created_at,expires_at,content_type,content_id FROM app_notifications WHERE (zman IS NULL OR zman=?) AND (target_installation_id IS NULL OR target_installation_id=?) AND (expires_at IS NULL OR expires_at>?) ORDER BY created_at DESC LIMIT 50'
+  ).bind(zman, installationId || '', new Date().toISOString()).all();
+
+  const cors = notificationCors(request, env);
+  return jsonResponse({
+    zman,
+    notifications: resultsOf(rows).map(r => ({
+      id:r.id, kind:r.kind, zman:r.zman, title:r.title, body:r.body,
+      createdAt:r.created_at, expiresAt:r.expires_at, contentType:r.content_type, contentId:r.content_id
+    }))
+  }, { headers:cors || {} });
+}
+
+function validNotificationAdmin(request, env) {
+  const expected = text(env.NOTIFICATION_ADMIN_TOKEN, 500);
+  const auth = request.headers.get('Authorization') || '';
+  const provided = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  return !!expected && provided === expected;
+}
+
+async function createManualNotification(request, env) {
+  if (!validNotificationAdmin(request, env)) {
+    return jsonResponse({ error:'Admin token required or NOTIFICATION_ADMIN_TOKEN is not configured' }, { status:401 });
+  }
+  await ensureNotificationTables(env);
+  let body;
+  try { body = await request.json(); }
+  catch (_) { return jsonResponse({ error:'Invalid JSON' }, { status:400 }); }
+
+  const title = text(body?.title, 120);
+  const message = text(body?.body, 1200);
+  const rawZman = text(body?.zman, 100);
+  const zman = rawZman && rawZman !== 'all' ? normalizeZman(rawZman) : null;
+  const expiresAt = body?.expiresAt ? validIsoDate(body.expiresAt) : null;
+  if (!title || !message || (zman && !SUPPORTED_ZMANIM.has(zman))) {
+    return jsonResponse({ error:'Invalid announcement' }, { status:400 });
+  }
+
+  const createdAt = new Date().toISOString();
+  const id = crypto.randomUUID();
+  await env.DB.prepare(
+    'INSERT INTO app_notifications (id,kind,zman,title,body,created_at,expires_at,target_installation_id,content_type,content_id,dedupe_key) VALUES (?,?,?,?,?,?,?,NULL,NULL,NULL,NULL)'
+  ).bind(id, 'announcement', zman, title, message, createdAt, expiresAt).run();
+
+  return jsonResponse({ ok:true, id, zman, title, createdAt, expiresAt });
 }
 
 function feedbackDetailPage() {
@@ -488,9 +624,9 @@ function diffWords(a,b){
 }
 async function api(path,options){const r=await fetch(path,{cache:'no-store',headers:{'Content-Type':'application/json'},...options});const d=await r.json();if(!r.ok)throw new Error(d.error||('Request failed '+r.status));return d}
 async function load(){
- const p=new URLSearchParams(location.search),type=p.get('type'),id=p.get('id'),root=document.getElementById('root');
+ const p=new URLSearchParams(location.search),type=p.get('type'),id=p.get('id'),zman=p.get('zman')||'2026-summer',root=document.getElementById('root');
  try{
-  const d=await api('/api/feedback/detail?type='+encodeURIComponent(type)+'&id='+encodeURIComponent(id));const i=d.issue;
+  const d=await api('/api/feedback/detail?zman='+encodeURIComponent(zman)+'&type='+encodeURIComponent(type)+'&id='+encodeURIComponent(id));const i=d.issue;
   let prev='';const revisions=(d.revisions||[]).map(r=>{let body='';if(r.wording){body=prev?'<div class="diff">'+diffWords(prev,r.wording)+'</div>':'<pre>'+esc(r.wording)+'</pre>';prev=r.wording}return '<div class="revision"><h3>'+esc(r.source.replace('status:','Status: '))+'</h3><div class="meta">'+fmt(r.createdAt)+(r.appVersion?' · app v'+esc(r.appVersion):'')+'</div>'+(r.note?'<p>'+esc(r.note)+'</p>':'')+body+'</div>'}).join('');
   const reports=(d.reports||[]).map(r=>'<div class="report"><div class="report-head"><span class="badge">'+esc(r.reason)+'</span><span class="meta">'+fmt(r.receivedAt)+'</span></div>'+(r.details?'<p>'+esc(r.details)+'</p>':'<p class="meta">No additional details.</p>')+'<div class="meta">'+esc(r.source||'')+(r.appVersion?' · app v'+esc(r.appVersion):'')+(r.location?' · '+esc(r.location):'')+'</div><details><summary class="meta">Wording and context</summary><pre>'+esc(r.wording)+'</pre>'+(Object.keys(r.context||{}).length?'<pre>'+esc(JSON.stringify(r.context,null,2))+'</pre>':'')+'</details></div>').join('');
   root.innerHTML='<div class="top"><div><span class="badge">'+esc(typeLabel(i.contentType))+' · '+esc(i.status)+'</span><h1>'+esc(i.title||i.contentId)+'</h1><div class="sub">'+esc(i.category||'')+' · '+esc(i.contentId)+'</div></div><div class="meta">Last report '+fmt(i.lastReportAt)+'</div></div>'+
@@ -500,7 +636,7 @@ async function load(){
   '<section class="card"><h2>Tracking & resolution</h2><div class="field"><label>Resolution / tracking note</label><textarea id="note">'+esc(i.resolutionNote||'')+'</textarea></div><div class="field"><label>Updated wording (optional; used for the before/after history)</label><textarea id="wording">'+esc(i.updatedWording||'')+'</textarea></div><div class="actions"><button data-status="new">Mark new</button><button data-status="tracking">Track</button><button data-status="reopened">Reopen</button><button class="primary" data-status="resolved">Resolve</button></div><div id="saveStatus" class="meta"></div></section>'+
   '<section class="card"><h2>Wording & status history</h2><div class="timeline">'+(revisions||'<div class="empty">No revisions yet.</div>')+'</div></section>'+
   '<section class="card"><h2>Student reports</h2>'+(reports||'<div class="empty">No reports.</div>')+'</section>';
-  root.querySelectorAll('[data-status]').forEach(btn=>btn.addEventListener('click',async()=>{const status=btn.dataset.status,save=document.getElementById('saveStatus');save.textContent='Saving…';try{await api('/api/feedback/status',{method:'POST',body:JSON.stringify({contentType:i.contentType,contentId:i.contentId,status,resolutionNote:document.getElementById('note').value.slice(0,1000),updatedWording:document.getElementById('wording').value.slice(0,6000)})});save.textContent='Saved.';setTimeout(load,250)}catch(e){save.textContent=e.message}}));
+  root.querySelectorAll('[data-status]').forEach(btn=>btn.addEventListener('click',async()=>{const status=btn.dataset.status,save=document.getElementById('saveStatus');save.textContent='Saving…';try{await api('/api/feedback/status',{method:'POST',body:JSON.stringify({zman:i.zman||zman,contentType:i.contentType,contentId:i.contentId,status,resolutionNote:document.getElementById('note').value.slice(0,1000),updatedWording:document.getElementById('wording').value.slice(0,6000)})});save.textContent='Saved.';setTimeout(load,250)}catch(e){save.textContent=e.message}}));
  }catch(e){root.innerHTML='<div class="empty">'+esc(e.message)+'</div>'}
 }
 load();
@@ -524,6 +660,12 @@ export default {
       return cors ? new Response(null, { status:204, headers:cors }) : new Response(null, { status:403 });
     }
     if (url.pathname === '/api/feedback/report' && request.method === 'POST') return ingestFeedbackReport(request, env);
+    if (url.pathname === '/api/notifications' && request.method === 'OPTIONS') {
+      const cors = notificationCors(request, env);
+      return cors ? new Response(null, { status:204, headers:cors }) : new Response(null, { status:403 });
+    }
+    if (url.pathname === '/api/notifications' && request.method === 'GET') return notificationsFeed(request, env);
+    if (url.pathname === '/api/admin/notifications' && request.method === 'POST') return createManualNotification(request, env);
     if (url.pathname === '/api/feedback/issues' && request.method === 'GET') return feedbackIssues(request, env);
     if (url.pathname === '/api/feedback/detail' && request.method === 'GET') return feedbackDetail(request, env);
     if (url.pathname === '/api/feedback/status' && request.method === 'POST') return updateFeedbackStatus(request, env);
