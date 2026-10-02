@@ -88,3 +88,20 @@ Study and Analytics are different origins. Any new JSON endpoint called by Study
 Do not treat a trusted-looking request header as administrator authentication unless its signature/token has actually been validated. The notification-admin endpoint currently uses the server secret `NOTIFICATION_ADMIN_TOKEN`.
 
 Keep every externally visible health version consistent with the package release. This repository wraps the base Worker, so check both the base health definition and any wrapper route that can shadow it.
+
+
+## Dashboard design rules
+
+Prefer interface structure over explanatory prose. Do not add subtitles or status lines that merely restate what a control, filter, or section already makes clear.
+
+Use **Zman / Zmanim** in all user-facing dashboard text. Legacy database/query names may remain internal.
+
+For dashboard filters:
+- keep the filter card dense and visually balanced;
+- arrange controls into complete rows when practical rather than leaving one or two orphan controls;
+- use a five-column grid on larger screens and a clean two-column grid on compact screens;
+- allow every grid child and form control to shrink with `min-width: 0` and `box-sizing: border-box`.
+
+Prefer familiar icons for compact utility actions when the meaning is unambiguous, with an accessible `aria-label` and title. Keep text for actions whose meaning would be ambiguous as an icon alone.
+
+Avoid redundant Zman explanatory copy above or below the filter card. The selected Zman in the control is sufficient.

@@ -104,3 +104,10 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 - Runs reminder cron every minute so arbitrary chosen HH:MM times can fire.
 - Uses broad IP-derived location with Hebcal sunset/tzeit calculations to suppress reminders throughout Shabbat and Yom Tov boundaries.
 - Keeps global announcement push delivery global across Zmanim and hardens notification-admin authentication.
+
+
+## Release 17
+
+- Uses Zman terminology in dashboard filters and removes redundant Zman explanatory copy.
+- Compacts the dashboard filter grid into balanced five-column/two-column rows.
+- Places Peak study times above Answer submissions by day.

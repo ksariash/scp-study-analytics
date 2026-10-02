@@ -91,9 +91,12 @@ body[id="top"]{scroll-margin-top:0}
 .essay-detail-pairing{padding:11px;border:1px solid #e4eaf3;border-radius:11px;background:#f8fafc;line-height:1.45;font-size:.78rem}.essay-detail-pairing strong{display:block;margin-bottom:3px}
 .essay-confusion-row{display:grid;grid-template-columns:minmax(0,1fr) 78px 78px;gap:8px;padding:7px 0;border-bottom:1px solid #edf1f6;font-size:.69rem}.essay-confusion-row:last-child{border-bottom:0}
 .essay-confusion-row .num{text-align:right}
-#dashboard-filters{grid-template-columns:repeat(5,minmax(130px,1fr))}
-#dashboard-filters .clear{grid-column:1 / -1}
-@media(max-width:1100px){#dashboard-filters{grid-template-columns:repeat(4,minmax(120px,1fr))}}
+#dashboard-filters{grid-template-columns:repeat(5,minmax(0,1fr));gap:7px;padding:10px}
+#dashboard-filters .field{min-width:0}
+#dashboard-filters .field label{font-size:.59rem;margin-bottom:4px}
+#dashboard-filters .field select,#dashboard-filters .field input{width:100%;min-width:0;height:36px;padding:6px 8px;font-size:.7rem;box-sizing:border-box}
+#dashboard-filters .clear{grid-column:1 / -1;min-height:36px}
+@media(max-width:900px){#dashboard-filters{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:8px}}
 @media(max-width:900px){.essay-analytics-overview{grid-template-columns:repeat(3,1fr)}.essay-performance-cards{grid-template-columns:1fr}}
 
 .jump-menu-title{padding:5px 7px 7px;color:#748198;font-size:.61rem;font-weight:900;text-transform:uppercase;letter-spacing:.055em}
@@ -114,17 +117,8 @@ body[id="top"]{scroll-margin-top:0}
   .feedback-controls select,.feedback-controls input[type="search"]{flex:1 1 130px}
   .essay-analytics-overview{grid-template-columns:repeat(2,1fr)}
   .essay-performance-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
-  #dashboard-filters{grid-template-columns:1fr 1fr}
-  #dashboard-filters .chabura-region{grid-column:1}
-  #dashboard-filters .chabura{grid-column:2}
-  #dashboard-filters .cohort{grid-column:1}
-  #dashboard-filters .category{grid-column:2}
-  #dashboard-filters .mode{grid-column:1}
-  #dashboard-filters .country{grid-column:2}
-  #dashboard-filters .region{grid-column:1}
-  #dashboard-filters .city{grid-column:2}
-  #dashboard-filters .from{grid-column:1}
-  #dashboard-filters .to{grid-column:2}
+  #dashboard-filters{grid-template-columns:repeat(2,minmax(0,1fr))}
+  #dashboard-filters .field{grid-column:auto!important}
   #dashboard-filters .clear{grid-column:1 / -1}
   .essay-needs-grid{grid-template-columns:1fr}
   .essay-fact-cards{display:block}
@@ -448,7 +442,7 @@ body[id="top"]{scroll-margin-top:0}
 
   const originalFilters =
     '<section class="filters" aria-label="Dashboard filters">\n' +
-    '    <div class="field cohort"><label for="cohort">Cohort</label><select id="cohort"><option value="">All cohorts</option></select></div>\n' +
+    '    <div class="field cohort"><label for="cohort">Zman</label><select id="cohort"><option value="">All Zmanim</option></select></div>\n' +
     '    <div class="field mode"><label for="mode">Mode</label><select id="mode"><option value="">Study + Test</option><option value="study">Study</option><option value="test">Practice test</option></select></div>\n' +
     '    <div class="field country"><label for="country">Country</label><select id="country"><option value="">All countries</option></select></div>\n' +
     '    <div class="field region"><label for="region">Region</label><select id="region"><option value="">All regions</option></select></div>\n' +
@@ -460,7 +454,7 @@ body[id="top"]{scroll-margin-top:0}
     '  </section>';
   const reorderedFilters =
     '<section class="filters" id="dashboard-filters" aria-label="Dashboard filters">\n' +
-    '    <div class="field cohort"><label for="cohort">Cohort</label><select id="cohort" required><option value="" disabled>Select cohort…</option></select></div>\n' +
+    '    <div class="field cohort"><label for="cohort">Zman</label><select id="cohort" required><option value="" disabled>Select Zman…</option></select></div>\n' +
     '    <div class="field chabura-region"><label for="chaburaRegion">Chabura Location</label><select id="chaburaRegion"><option value="">All chabura locations</option></select></div>\n' +
     '    <div class="field chabura"><label for="chabura">Chabura Rav</label><select id="chabura"><option value="">All chabura rabbanim</option></select></div>\n' +
     '    <div class="field category"><label for="category">Topic</label><select id="category"><option value="">All topics</option></select></div>\n' +
