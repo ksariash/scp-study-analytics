@@ -1,5 +1,9 @@
+import webpush from 'web-push';
+import { getHolidaysOnDate, flags } from '@hebcal/core';
+
 const FEEDBACK_TYPES = new Set(['question', 'essay_prompt', 'essay_pairing']);
-const FEEDBACK_REASONS = new Set(['confusing', 'inaccurate', 'wording', 'incomplete', 'notes_link', 'audio_link', 'other']);
+const FEEDBACK_REASONS = new Set(['inaccurate', 'incomplete', 'confusing', 'typo', 'audio_link', 'notes_link', 'other']);
+const LEGACY_FEEDBACK_REASON_MAP = new Map([['wording','typo']]);
 const FEEDBACK_STATUSES = new Set(['new', 'tracking', 'resolved', 'reopened']);
 let feedbackTablesReady = false;
 let notificationTablesReady = false;
@@ -19,6 +23,17 @@ function feedbackHash(value) {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function normalizeFeedbackReasons(raw) {
+  const values = Array.isArray(raw?.reasons) ? raw.reasons : [raw?.reason];
+  return [...new Set(values.map(value => {
+    const reason = text(value, 32);
+    return LEGACY_FEEDBACK_REASON_MAP.get(reason) || reason;
+  }).filter(reason => FEEDBACK_REASONS.has(reason)))].slice(0, FEEDBACK_REASONS.size);
+}
+function splitFeedbackReasons(value) {
+  return [...new Set(String(value || '').split(',').map(item => LEGACY_FEEDBACK_REASON_MAP.get(item) || item).filter(item => FEEDBACK_REASONS.has(item)))];
 }
 
 function feedbackCors(request, env) {
@@ -144,18 +159,19 @@ function normalizeFeedbackReport(raw) {
   const category = text(raw.category, 180);
   const wording = text(raw.wording, 6000);
   const contentHash = text(raw.contentHash, 64) || feedbackHash(wording);
-  const reason = text(raw.reason, 32);
+  const reasons = normalizeFeedbackReasons(raw);
+  const reason = reasons.join(',');
   const details = text(raw.details, 500);
   const source = text(raw.source, 40) || 'other';
   let context = {};
   if (raw.context && typeof raw.context === 'object') context = raw.context;
   const contextJson = JSON.stringify(context).slice(0, 5000);
-  if (!eventId || !installationId || !cohort || !FEEDBACK_TYPES.has(contentType) || !contentId || !wording || !FEEDBACK_REASONS.has(reason)) {
+  if (!eventId || !installationId || !cohort || !FEEDBACK_TYPES.has(contentType) || !contentId || !wording || !reasons.length) {
     throw new Error('Malformed feedback');
   }
   return {
     eventId, installationId, cohort, appVersion, clientTs: validIsoDate(raw.clientTs),
-    contentType, contentId, parentId, title, category, wording, contentHash, reason, details, source, contextJson
+    contentType, contentId, parentId, title, category, wording, contentHash, reason, reasons, details, source, contextJson
   };
 }
 
@@ -260,7 +276,7 @@ function feedbackIssueFilters(url) {
   if (type && FEEDBACK_TYPES.has(type)) { clauses.push('i.content_type=?'); params.push(type); }
   if (status && FEEDBACK_STATUSES.has(status)) { clauses.push('i.status=?'); params.push(status); }
   else if (!includeResolved) clauses.push("i.status != 'resolved'");
-  if (reason && FEEDBACK_REASONS.has(reason)) { clauses.push('r.reason=?'); params.push(reason); }
+  if (reason && FEEDBACK_REASONS.has(reason)) { clauses.push(reason === 'typo' ? "(instr(','||r.reason||',', ',typo,')>0 OR r.reason='wording')" : "instr(','||r.reason||',', ','||?||',')>0"); if (reason !== 'typo') params.push(reason); }
   if (cohort) { clauses.push('r.cohort=?'); params.push(cohort); }
   if (category) { clauses.push('i.category=?'); params.push(category); }
   if (search) {
@@ -286,13 +302,13 @@ async function feedbackIssues(request, env) {
       i.updated_wording, i.resolution_note, i.resolved_at,
       COUNT(r.id) matching_reports,
       COUNT(DISTINCT r.installation_id) learners,
-      SUM(CASE WHEN r.reason='confusing' THEN 1 ELSE 0 END) confusing,
-      SUM(CASE WHEN r.reason='inaccurate' THEN 1 ELSE 0 END) inaccurate,
-      SUM(CASE WHEN r.reason='wording' THEN 1 ELSE 0 END) wording_count,
-      SUM(CASE WHEN r.reason='incomplete' THEN 1 ELSE 0 END) incomplete,
-      SUM(CASE WHEN r.reason='notes_link' THEN 1 ELSE 0 END) notes_link,
-      SUM(CASE WHEN r.reason='audio_link' THEN 1 ELSE 0 END) audio_link,
-      SUM(CASE WHEN r.reason='other' THEN 1 ELSE 0 END) other
+      SUM(CASE WHEN instr(','||r.reason||',', ',confusing,')>0 THEN 1 ELSE 0 END) confusing,
+      SUM(CASE WHEN instr(','||r.reason||',', ',inaccurate,')>0 THEN 1 ELSE 0 END) inaccurate,
+      SUM(CASE WHEN (instr(','||r.reason||',', ',typo,')>0 OR r.reason='wording') THEN 1 ELSE 0 END) typo,
+      SUM(CASE WHEN instr(','||r.reason||',', ',incomplete,')>0 THEN 1 ELSE 0 END) incomplete,
+      SUM(CASE WHEN instr(','||r.reason||',', ',notes_link,')>0 THEN 1 ELSE 0 END) notes_link,
+      SUM(CASE WHEN instr(','||r.reason||',', ',audio_link,')>0 THEN 1 ELSE 0 END) audio_link,
+      SUM(CASE WHEN instr(','||r.reason||',', ',other,')>0 THEN 1 ELSE 0 END) other
     FROM feedback_issues i
     JOIN feedback_reports r ON r.content_type=i.content_type AND r.content_id=i.content_id
     ${where}
@@ -322,7 +338,7 @@ async function feedbackIssues(request, env) {
       reasons: {
         confusing: Number(r.confusing)||0,
         inaccurate: Number(r.inaccurate)||0,
-        wording: Number(r.wording_count)||0,
+        typo: Number(r.typo)||0,
         incomplete: Number(r.incomplete)||0,
         notes_link: Number(r.notes_link)||0,
         audio_link: Number(r.audio_link)||0,
@@ -368,7 +384,7 @@ async function feedbackDetail(request, env) {
       try { context = JSON.parse(r.context_json || '{}'); } catch (_) {}
       return {
         id:r.id, zman:normalizeZman(r.cohort), cohort:normalizeZman(r.cohort), appVersion:r.app_version, clientTs:r.client_ts, receivedAt:r.received_at,
-        reason:r.reason, details:r.details, source:r.source, wording:r.wording, contentHash:r.content_hash, context,
+        reason:splitFeedbackReasons(r.reason).join(', '), reasons:splitFeedbackReasons(r.reason), details:r.details, source:r.source, wording:r.wording, contentHash:r.content_hash, context,
         location:[r.city,r.region,r.country].filter(Boolean).join(', ')
       };
     }),
@@ -492,102 +508,108 @@ async function feedbackAdminSync(env) {
 }
 
 
+
 async function ensureNotificationTables(env) {
   if (notificationTablesReady) return;
-  await env.DB.prepare('CREATE TABLE IF NOT EXISTS app_notifications (id TEXT PRIMARY KEY, kind TEXT NOT NULL, zman TEXT, title TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT, target_installation_id TEXT, content_type TEXT, content_id TEXT, dedupe_key TEXT UNIQUE)').run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS app_notifications (
+    id TEXT PRIMARY KEY, kind TEXT NOT NULL, zman TEXT, title TEXT NOT NULL, body TEXT NOT NULL,
+    created_at TEXT NOT NULL, expires_at TEXT, target_installation_id TEXT, content_type TEXT,
+    content_id TEXT, action_json TEXT, dedupe_key TEXT UNIQUE
+  )`).run();
+  try { await env.DB.prepare('ALTER TABLE app_notifications ADD COLUMN action_json TEXT').run(); }
+  catch (error) { if (!/duplicate column/i.test(String(error?.message || error))) throw error; }
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS notification_state (
+    notification_id TEXT NOT NULL, installation_id TEXT NOT NULL, read_at TEXT, archived_at TEXT,
+    updated_at TEXT NOT NULL, PRIMARY KEY(notification_id, installation_id)
+  )`).run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS push_config (
+    id INTEGER PRIMARY KEY CHECK (id=1), public_key TEXT NOT NULL, private_key TEXT NOT NULL,
+    subject TEXT NOT NULL, created_at TEXT NOT NULL
+  )`).run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint TEXT PRIMARY KEY, installation_id TEXT NOT NULL, zman TEXT NOT NULL, p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL, timezone TEXT NOT NULL, reminder_enabled INTEGER NOT NULL DEFAULT 0,
+    reminder_time TEXT, israel_calendar INTEGER NOT NULL DEFAULT 0, last_reminder_local_date TEXT,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  )`).run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_app_notifications_feed ON app_notifications(zman, created_at DESC)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_app_notifications_target ON app_notifications(target_installation_id, created_at DESC)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_notification_state_install ON notification_state(installation_id, archived_at, read_at)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_push_installation ON push_subscriptions(installation_id, zman)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_push_reminders ON push_subscriptions(reminder_enabled, reminder_time)').run();
   notificationTablesReady = true;
 }
-
-function notificationCors(request, env) {
-  const origin = request.headers.get('Origin');
-  const allowed = text(env.ALLOWED_ORIGIN, 300);
-  if (!origin || !allowed || origin !== allowed) return null;
-  return {
-    'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Max-Age': '86400',
-    'Vary': 'Origin'
-  };
+function notificationCors(request, env, methods='GET, POST, DELETE, OPTIONS') {
+  const origin=request.headers.get('Origin'),allowed=text(env.ALLOWED_ORIGIN,300);
+  if(!origin||!allowed||origin!==allowed)return null;
+  return {'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Methods':methods,'Access-Control-Allow-Headers':'Content-Type','Access-Control-Max-Age':'86400','Vary':'Origin'};
 }
-
-async function createIssueResolvedNotifications(env, input) {
+async function vapidConfig(env){
   await ensureNotificationTables(env);
-  const reporters = resultsOf(await env.DB.prepare(
-    'SELECT DISTINCT installation_id FROM feedback_reports WHERE cohort=? AND content_type=? AND content_id=?'
-  ).bind(input.zman, input.contentType, input.storageContentId).all());
-  const label = input.title || (input.contentType === 'question' ? 'Question ' + input.publicContentId : 'Reported content');
-  const message = input.note ? label + ': ' + input.note : label + ' was marked resolved by the course team.';
-  const now = new Date().toISOString();
-
-  for (const row of reporters) {
-    const installationId = text(row.installation_id, 100);
-    if (!installationId) continue;
-    const dedupe = ['resolved', input.zman, input.contentType, input.storageContentId, input.resolvedHash || now, installationId].join(':');
-    await env.DB.prepare(
-      'INSERT OR IGNORE INTO app_notifications (id,kind,zman,title,body,created_at,target_installation_id,content_type,content_id,dedupe_key) VALUES (?,?,?,?,?,?,?,?,?,?)'
-    ).bind(
-      crypto.randomUUID(), 'issue_resolved', input.zman, 'Issue addressed', message, now,
-      installationId, input.contentType, input.publicContentId, dedupe
-    ).run();
-  }
+  let row=await env.DB.prepare('SELECT public_key,private_key,subject FROM push_config WHERE id=1').first();
+  if(!row){const keys=webpush.generateVAPIDKeys(),subject='https://scp-study.ksariash.workers.dev';await env.DB.prepare('INSERT OR IGNORE INTO push_config (id,public_key,private_key,subject,created_at) VALUES (1,?,?,?,?)').bind(keys.publicKey,keys.privateKey,subject,new Date().toISOString()).run();row=await env.DB.prepare('SELECT public_key,private_key,subject FROM push_config WHERE id=1').first();}
+  return{publicKey:row.public_key,privateKey:row.private_key,subject:row.subject};
 }
-
-async function notificationsFeed(request, env) {
-  await ensureNotificationTables(env);
-  const url = new URL(request.url);
-  const zman = normalizeZman(url.searchParams.get('zman') || url.searchParams.get('cohort') || CURRENT_ZMAN);
-  const installationId = text(url.searchParams.get('installationId'), 100);
-  if (!SUPPORTED_ZMANIM.has(zman)) return jsonResponse({ error:'Unsupported zman' }, { status:400 });
-
-  const rows = await env.DB.prepare(
-    'SELECT id,kind,zman,title,body,created_at,expires_at,content_type,content_id FROM app_notifications WHERE (zman IS NULL OR zman=?) AND (target_installation_id IS NULL OR target_installation_id=?) AND (expires_at IS NULL OR expires_at>?) ORDER BY created_at DESC LIMIT 50'
-  ).bind(zman, installationId || '', new Date().toISOString()).all();
-
-  const cors = notificationCors(request, env);
-  return jsonResponse({
-    zman,
-    notifications: resultsOf(rows).map(r => ({
-      id:r.id, kind:r.kind, zman:r.zman, title:r.title, body:r.body,
-      createdAt:r.created_at, expiresAt:r.expires_at, contentType:r.content_type, contentId:r.content_id
-    }))
-  }, { headers:cors || {} });
+function parseAction(value){
+  if(!value)return null;
+  try{const a=typeof value==='string'?JSON.parse(value):value;if(!a||typeof a!=='object'||Array.isArray(a))return null;const type=text(a.type,32),label=text(a.label,80),url=text(a.url,1000),pollId=text(a.pollId,120);return type||label||url||pollId?{type:type||'link',label,url,pollId}:null}catch(_){return null}
 }
-
-function validNotificationAdmin(request, env) {
-  const expected = text(env.NOTIFICATION_ADMIN_TOKEN, 500);
-  const auth = request.headers.get('Authorization') || '';
-  const provided = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  return !!expected && provided === expected;
+async function sendPushSubscription(env,row,payload){
+  const c=await vapidConfig(env);webpush.setVapidDetails(c.subject,c.publicKey,c.privateKey);
+  try{await webpush.sendNotification({endpoint:row.endpoint,keys:{p256dh:row.p256dh,auth:row.auth}},JSON.stringify(payload),{TTL:86400});return true}catch(error){const statusCode=error instanceof webpush.WebPushError?error.statusCode:Number(error?.statusCode||0);if(statusCode===404||statusCode===410)await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint=?').bind(row.endpoint).run();return false}
 }
-
-async function createManualNotification(request, env) {
-  if (!validNotificationAdmin(request, env)) {
-    return jsonResponse({ error:'Admin token required or NOTIFICATION_ADMIN_TOKEN is not configured' }, { status:401 });
-  }
-  await ensureNotificationTables(env);
-  let body;
-  try { body = await request.json(); }
-  catch (_) { return jsonResponse({ error:'Invalid JSON' }, { status:400 }); }
-
-  const title = text(body?.title, 120);
-  const message = text(body?.body, 1200);
-  const rawZman = text(body?.zman, 100);
-  const zman = rawZman && rawZman !== 'all' ? normalizeZman(rawZman) : null;
-  const expiresAt = body?.expiresAt ? validIsoDate(body.expiresAt) : null;
-  if (!title || !message || (zman && !SUPPORTED_ZMANIM.has(zman))) {
-    return jsonResponse({ error:'Invalid announcement' }, { status:400 });
-  }
-
-  const createdAt = new Date().toISOString();
-  const id = crypto.randomUUID();
-  await env.DB.prepare(
-    'INSERT INTO app_notifications (id,kind,zman,title,body,created_at,expires_at,target_installation_id,content_type,content_id,dedupe_key) VALUES (?,?,?,?,?,?,?,NULL,NULL,NULL,NULL)'
-  ).bind(id, 'announcement', zman, title, message, createdAt, expiresAt).run();
-
-  return jsonResponse({ ok:true, id, zman, title, createdAt, expiresAt });
+async function pushNotificationToAudience(env,n,installationIds=null){
+  let sql='SELECT endpoint,installation_id,p256dh,auth FROM push_subscriptions WHERE zman=?',params=[n.zman||CURRENT_ZMAN];
+  if(Array.isArray(installationIds)&&installationIds.length){const ids=[...new Set(installationIds.filter(Boolean))];sql+=` AND installation_id IN (${ids.map(()=>'?').join(',')})`;params.push(...ids);}
+  const rows=resultsOf(await env.DB.prepare(sql).bind(...params).all()),action=parseAction(n.actionJson||n.action_json),payload={title:n.title,body:n.body,tag:'scp-'+n.id,data:{notificationId:n.id,zman:n.zman||CURRENT_ZMAN,kind:n.kind,url:action?.url||'/?notifications=1'}};
+  await Promise.all(rows.map(row=>sendPushSubscription(env,row,payload)));
+}
+async function createIssueResolvedNotifications(env,input){
+  await ensureNotificationTables(env);const reporters=resultsOf(await env.DB.prepare('SELECT DISTINCT installation_id FROM feedback_reports WHERE cohort=? AND content_type=? AND content_id=?').bind(input.zman,input.contentType,input.storageContentId).all());
+  const label=input.title||(input.contentType==='question'?'Question '+input.publicContentId:'Reported content'),message=input.note?label+': '+input.note:label+' was marked resolved by the course team.',now=new Date().toISOString();
+  for(const row of reporters){const installationId=text(row.installation_id,100);if(!installationId)continue;const dedupe=['resolved',input.zman,input.contentType,input.storageContentId,input.resolvedHash||now,installationId].join(':'),id=crypto.randomUUID(),actionJson=JSON.stringify({type:'open_feedback',label:'View details',url:'/?notifications=1'});const ins=await env.DB.prepare('INSERT OR IGNORE INTO app_notifications (id,kind,zman,title,body,created_at,target_installation_id,content_type,content_id,action_json,dedupe_key) VALUES (?,?,?,?,?,?,?,?,?,?,?)').bind(id,'issue_resolved',input.zman,'Issue addressed',message,now,installationId,input.contentType,input.publicContentId,actionJson,dedupe).run();if(Number(ins?.meta?.changes||0)>0)await pushNotificationToAudience(env,{id,kind:'issue_resolved',zman:input.zman,title:'Issue addressed',body:message,actionJson},[installationId]);}
+}
+async function notificationsFeed(request,env){
+  await ensureNotificationTables(env);const url=new URL(request.url),zman=normalizeZman(url.searchParams.get('zman')||url.searchParams.get('cohort')||CURRENT_ZMAN),installationId=text(url.searchParams.get('installationId'),100),includeArchived=url.searchParams.get('includeArchived')==='1';
+  if(!SUPPORTED_ZMANIM.has(zman)||!installationId)return jsonResponse({error:'Invalid notification request'},{status:400});
+  const rows=await env.DB.prepare(`SELECT n.id,n.kind,n.zman,n.title,n.body,n.created_at,n.expires_at,n.content_type,n.content_id,n.action_json,s.read_at,s.archived_at FROM app_notifications n LEFT JOIN notification_state s ON s.notification_id=n.id AND s.installation_id=? WHERE (n.zman IS NULL OR n.zman=?) AND (n.target_installation_id IS NULL OR n.target_installation_id=?) AND (n.expires_at IS NULL OR n.expires_at>?) AND (?=1 OR s.archived_at IS NULL) ORDER BY n.created_at DESC LIMIT 100`).bind(installationId,zman,installationId,new Date().toISOString(),includeArchived?1:0).all();
+  const notifications=resultsOf(rows).map(r=>({id:r.id,kind:r.kind,zman:r.zman||zman,title:r.title,body:r.body,createdAt:r.created_at,expiresAt:r.expires_at,contentType:r.content_type,contentId:r.content_id,action:parseAction(r.action_json),readAt:r.read_at||null,archivedAt:r.archived_at||null})),cors=notificationCors(request,env);
+  return jsonResponse({zman,unread:notifications.filter(n=>!n.readAt&&!n.archivedAt).length,notifications},{headers:cors||{}});
+}
+async function updateNotificationState(request,env){
+  const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});
+  let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400,headers:cors})}
+  const installationId=text(body?.installationId,100),id=text(body?.id,120);if(!installationId||!id)return jsonResponse({error:'Invalid notification state'},{status:400,headers:cors});
+  const now=new Date().toISOString(),current=await env.DB.prepare('SELECT read_at,archived_at FROM notification_state WHERE notification_id=? AND installation_id=?').bind(id,installationId).first(),readAt=body?.read===true?now:(body?.read===false?null:(current?.read_at||null)),archivedAt=body?.archived===true?now:(body?.archived===false?null:(current?.archived_at||null));
+  await env.DB.prepare('INSERT INTO notification_state (notification_id,installation_id,read_at,archived_at,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(notification_id,installation_id) DO UPDATE SET read_at=excluded.read_at,archived_at=excluded.archived_at,updated_at=excluded.updated_at').bind(id,installationId,readAt,archivedAt,now).run();
+  return jsonResponse({ok:true,id,readAt,archivedAt},{headers:cors});
+}
+async function pushConfigResponse(request,env){const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});const c=await vapidConfig(env);return jsonResponse({publicKey:c.publicKey},{headers:cors});}
+function normalizeSubscription(raw){const endpoint=text(raw?.endpoint,2000),p256dh=text(raw?.keys?.p256dh,1000),auth=text(raw?.keys?.auth,500);return endpoint&&p256dh&&auth?{endpoint,p256dh,auth}:null;}
+async function upsertPushSubscription(request,env){
+  const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400,headers:cors})}
+  const installationId=text(body?.installationId,100),zman=normalizeZman(body?.zman||body?.cohort||CURRENT_ZMAN),sub=normalizeSubscription(body?.subscription),timezone=text(body?.timezone,100)||'UTC',reminderEnabled=body?.reminderEnabled?1:0,reminderTime=/^\d{2}:\d{2}$/.test(String(body?.reminderTime||''))?String(body.reminderTime):null,israelCalendar=body?.israelCalendar?1:0;
+  if(!installationId||!SUPPORTED_ZMANIM.has(zman)||!sub)return jsonResponse({error:'Invalid push subscription'},{status:400,headers:cors});
+  const now=new Date().toISOString();await env.DB.prepare(`INSERT INTO push_subscriptions (endpoint,installation_id,zman,p256dh,auth,timezone,reminder_enabled,reminder_time,israel_calendar,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET installation_id=excluded.installation_id,zman=excluded.zman,p256dh=excluded.p256dh,auth=excluded.auth,timezone=excluded.timezone,reminder_enabled=excluded.reminder_enabled,reminder_time=excluded.reminder_time,israel_calendar=excluded.israel_calendar,updated_at=excluded.updated_at`).bind(sub.endpoint,installationId,zman,sub.p256dh,sub.auth,timezone,reminderEnabled,reminderTime,israelCalendar,now,now).run();
+  return jsonResponse({ok:true,reminderEnabled:!!reminderEnabled,reminderTime,israelCalendar:!!israelCalendar},{headers:cors});
+}
+async function removePushSubscription(request,env){const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400,headers:cors})}const installationId=text(body?.installationId,100),endpoint=text(body?.endpoint,2000);if(endpoint)await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint=?').bind(endpoint).run();else if(installationId)await env.DB.prepare('DELETE FROM push_subscriptions WHERE installation_id=?').bind(installationId).run();else return jsonResponse({error:'Invalid unsubscribe request'},{status:400,headers:cors});return jsonResponse({ok:true},{headers:cors});}
+function localClock(date,timezone){try{const parts=new Intl.DateTimeFormat('en-CA',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date),v=Object.fromEntries(parts.filter(p=>p.type!=='literal').map(p=>[p.type,p.value]));return{date:`${v.year}-${v.month}-${v.day}`,time:`${v.hour}:${v.minute}`,year:Number(v.year),month:Number(v.month),day:Number(v.day)}}catch(_){return null}}
+function isStudyReminderBlocked(clock,israelCalendar){const date=new Date(Date.UTC(clock.year,clock.month-1,clock.day,12));if(date.getUTCDay()===6)return true;return(getHolidaysOnDate(date,!!israelCalendar)||[]).some(event=>(event.getFlags()&flags.CHAG)!==0);}
+async function sendDailyStudyReminders(env){await ensureNotificationTables(env);const now=new Date(),rows=resultsOf(await env.DB.prepare('SELECT endpoint,installation_id,zman,p256dh,auth,timezone,reminder_time,israel_calendar,last_reminder_local_date FROM push_subscriptions WHERE reminder_enabled=1 AND reminder_time IS NOT NULL').all());for(const row of rows){const clock=localClock(now,row.timezone);if(!clock||clock.time!==row.reminder_time||clock.date===row.last_reminder_local_date)continue;await env.DB.prepare('UPDATE push_subscriptions SET last_reminder_local_date=?,updated_at=? WHERE endpoint=?').bind(clock.date,now.toISOString(),row.endpoint).run();if(isStudyReminderBlocked(clock,Number(row.israel_calendar)))continue;await sendPushSubscription(env,row,{title:'Time to study',body:'Your daily SCP Study reminder.',tag:'scp-daily-study-'+clock.date,data:{kind:'study_reminder',zman:row.zman,url:'/'}});}}
+function validNotificationAdmin(request,env){const expected=text(env.NOTIFICATION_ADMIN_TOKEN,500),auth=request.headers.get('Authorization')||'',accessEmail=text(request.headers.get('Cf-Access-Authenticated-User-Email'),320);if(accessEmail)return true;const provided=auth.startsWith('Bearer ')?auth.slice(7):'';return!!expected&&provided===expected;}
+async function createManualNotification(request,env){
+  if(!validNotificationAdmin(request,env))return jsonResponse({error:'Cloudflare Access or NOTIFICATION_ADMIN_TOKEN is required'},{status:401});await ensureNotificationTables(env);let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400})}
+  const title=text(body?.title,120),message=text(body?.body,1200),kind=text(body?.kind,40)||'announcement',rawZman=text(body?.zman,100),zman=rawZman&&rawZman!=='all'?normalizeZman(rawZman):null,expiresAt=body?.expiresAt?validIsoDate(body.expiresAt):null,action=parseAction(body?.action);
+  if(!title||!message||(zman&&!SUPPORTED_ZMANIM.has(zman)))return jsonResponse({error:'Invalid notification'},{status:400});const createdAt=new Date().toISOString(),id=crypto.randomUUID(),deliveryZman=zman||CURRENT_ZMAN,actionJson=action?JSON.stringify(action):null;
+  await env.DB.prepare('INSERT INTO app_notifications (id,kind,zman,title,body,created_at,expires_at,target_installation_id,content_type,content_id,action_json,dedupe_key) VALUES (?,?,?,?,?,?,?,NULL,NULL,NULL,?,NULL)').bind(id,kind,zman,title,message,createdAt,expiresAt,actionJson).run();await pushNotificationToAudience(env,{id,kind,zman:deliveryZman,title,body:message,actionJson});return jsonResponse({ok:true,id,kind,zman,title,createdAt,expiresAt,action});
+}
+async function deleteAnonymousServerData(request,env){
+  const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400,headers:cors})}const installationId=text(body?.installationId,100);if(!installationId)return jsonResponse({error:'Installation ID required'},{status:400,headers:cors});
+  await ensureFeedbackTables(env);await ensureNotificationTables(env);const affected=resultsOf(await env.DB.prepare('SELECT DISTINCT content_type,content_id FROM feedback_reports WHERE installation_id=?').bind(installationId).all());
+  await env.DB.batch([env.DB.prepare('DELETE FROM events WHERE installation_id=?').bind(installationId),env.DB.prepare('DELETE FROM glossary_events WHERE installation_id=?').bind(installationId),env.DB.prepare('DELETE FROM essay_round_events WHERE installation_id=?').bind(installationId),env.DB.prepare('DELETE FROM essay_pairing_events WHERE installation_id=?').bind(installationId),env.DB.prepare("DELETE FROM learner_profiles WHERE installation_id=? OR installation_id LIKE '%::' || ?").bind(installationId,installationId),env.DB.prepare('DELETE FROM notification_state WHERE installation_id=?').bind(installationId),env.DB.prepare('DELETE FROM push_subscriptions WHERE installation_id=?').bind(installationId),env.DB.prepare('DELETE FROM feedback_reports WHERE installation_id=?').bind(installationId)]);
+  for(const item of affected){const latest=await env.DB.prepare('SELECT received_at,content_hash,wording,parent_id,title,category FROM feedback_reports WHERE content_type=? AND content_id=? ORDER BY received_at DESC,id DESC LIMIT 1').bind(item.content_type,item.content_id).first();if(!latest){await env.DB.prepare('DELETE FROM feedback_issues WHERE content_type=? AND content_id=?').bind(item.content_type,item.content_id).run();await env.DB.prepare('DELETE FROM feedback_revisions WHERE content_type=? AND content_id=?').bind(item.content_type,item.content_id).run();}else{const count=await env.DB.prepare('SELECT COUNT(*) n,MIN(received_at) first_at FROM feedback_reports WHERE content_type=? AND content_id=?').bind(item.content_type,item.content_id).first();await env.DB.prepare('UPDATE feedback_issues SET parent_id=?,title=?,category=?,first_report_at=?,last_report_at=?,report_count=?,last_content_hash=?,last_wording=?,updated_at=? WHERE content_type=? AND content_id=?').bind(latest.parent_id,latest.title,latest.category,count.first_at,latest.received_at,Number(count.n)||0,latest.content_hash,latest.wording,new Date().toISOString(),item.content_type,item.content_id).run();}}
+  return jsonResponse({ok:true},{headers:cors});
 }
 
 function feedbackDetailPage() {
@@ -665,6 +687,11 @@ export default {
       return cors ? new Response(null, { status:204, headers:cors }) : new Response(null, { status:403 });
     }
     if (url.pathname === '/api/notifications' && request.method === 'GET') return notificationsFeed(request, env);
+    if (url.pathname === '/api/notifications/state' && request.method === 'POST') return updateNotificationState(request, env);
+    if (url.pathname === '/api/push/config' && request.method === 'GET') return pushConfigResponse(request, env);
+    if (url.pathname === '/api/push/subscribe' && request.method === 'POST') return upsertPushSubscription(request, env);
+    if (url.pathname === '/api/push/unsubscribe' && request.method === 'POST') return removePushSubscription(request, env);
+    if (url.pathname === '/api/data/delete' && request.method === 'POST') return deleteAnonymousServerData(request, env);
     if (url.pathname === '/api/admin/notifications' && request.method === 'POST') return createManualNotification(request, env);
     if (url.pathname === '/api/feedback/issues' && request.method === 'GET') return feedbackIssues(request, env);
     if (url.pathname === '/api/feedback/detail' && request.method === 'GET') return feedbackDetail(request, env);
@@ -674,7 +701,7 @@ export default {
     return __BASE_WORKER.fetch(request, env);
   },
   async scheduled(controller, env, ctx) {
-    ctx.waitUntil(applyFeedbackAdminActions(env));
+    ctx.waitUntil(Promise.all([applyFeedbackAdminActions(env), sendDailyStudyReminders(env)]));
     if (typeof __BASE_WORKER.scheduled === 'function') return __BASE_WORKER.scheduled(controller, env, ctx);
   }
 };

@@ -63,3 +63,14 @@ A new Zman must not become selectable in Study until Analytics accepts its ID an
 Fetch latest `main` → edit canonical sources → update schema/docs when architecture changes → bump package and health versions for a release → run `npm run build` and syntax checks → commit to `main` → inspect the Cloudflare Workers Builds check.
 
 A task is not deployed successfully while the Cloudflare check is pending or failed. Do not claim the live Worker has been directly exercised unless an actual request to the Worker succeeded.
+
+
+## Push, inbox, and reminders
+
+Web Push uses `web-push`. VAPID keys are generated once and retained only in D1 `push_config`; never expose the private key. The inbox is canonical and push is only a delivery channel. Read/archive state is per anonymous installation.
+
+Daily reminders use the device IANA timezone and chosen HH:MM. Suppress the entire local Saturday and dates with a Hebcal `CHAG` event using the user's Diaspora/Israel choice. Mark the local date processed before attempting delivery to avoid duplicate cron sends.
+
+Notification `kind` and `action_json` are extensible. Unknown kinds must still render safely; unknown actions must be ignored.
+
+Feedback reports may contain multiple tags. Supported UI vocabulary: Inaccurate, Incomplete, Confusing, Typo, Wrong audio, Wrong notes, Other.

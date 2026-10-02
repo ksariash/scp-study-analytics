@@ -252,7 +252,24 @@ CREATE TABLE IF NOT EXISTS app_notifications (
   target_installation_id TEXT,
   content_type TEXT,
   content_id TEXT,
+  action_json TEXT,
   dedupe_key TEXT UNIQUE
 );
 CREATE INDEX IF NOT EXISTS idx_app_notifications_feed ON app_notifications(zman, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_app_notifications_target ON app_notifications(target_installation_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS notification_state (
+  notification_id TEXT NOT NULL, installation_id TEXT NOT NULL, read_at TEXT, archived_at TEXT, updated_at TEXT NOT NULL,
+  PRIMARY KEY(notification_id, installation_id)
+);
+CREATE INDEX IF NOT EXISTS idx_notification_state_install ON notification_state(installation_id, archived_at, read_at);
+CREATE TABLE IF NOT EXISTS push_config (
+  id INTEGER PRIMARY KEY CHECK (id=1), public_key TEXT NOT NULL, private_key TEXT NOT NULL, subject TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint TEXT PRIMARY KEY, installation_id TEXT NOT NULL, zman TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
+  timezone TEXT NOT NULL, reminder_enabled INTEGER NOT NULL DEFAULT 0, reminder_time TEXT, israel_calendar INTEGER NOT NULL DEFAULT 0,
+  last_reminder_local_date TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_push_installation ON push_subscriptions(installation_id, zman);
+CREATE INDEX IF NOT EXISTS idx_push_reminders ON push_subscriptions(reminder_enabled, reminder_time);

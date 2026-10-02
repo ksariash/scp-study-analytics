@@ -139,7 +139,7 @@ body[id="top"]{scroll-margin-top:0}
       '<div class="section-actions feedback-controls">' +
         '<input id="feedbackSearchFilter" type="search" placeholder="Search topic or content" aria-label="Search feedback topics">' +
         '<select id="feedbackTypeFilter" aria-label="Feedback content type"><option value="">All content</option><option value="question">Questions</option><option value="essay_prompt">Essay questions</option><option value="essay_pairing">Essay pairings</option></select>' +
-        '<select id="feedbackReasonFilter" aria-label="Feedback reason"><option value="">All reasons</option><option value="confusing">Confusing</option><option value="inaccurate">May be inaccurate</option><option value="wording">Wording / typo</option><option value="incomplete">Missing / incomplete</option><option value="other">Other</option></select>' +
+        '<select id="feedbackReasonFilter" aria-label="Feedback tag"><option value="">All tags</option><option value="inaccurate">Inaccurate</option><option value="incomplete">Incomplete</option><option value="confusing">Confusing</option><option value="typo">Typo</option><option value="audio_link">Wrong audio</option><option value="notes_link">Wrong notes</option><option value="other">Other</option></select>' +
         '<select id="feedbackStatusFilter" aria-label="Feedback status"><option value="">All unresolved</option><option value="new">New</option><option value="tracking">Tracking</option><option value="reopened">Reopened</option><option value="resolved">Resolved</option></select>' +
         '<label class="feedback-resolved-toggle"><input id="feedbackShowResolved" type="checkbox"> Include resolved</label>' +
       '</div></div><div id="feedbackIssues"><div class="feedback-empty">Loading feedback…</div></div>' +
@@ -150,7 +150,7 @@ body[id="top"]{scroll-margin-top:0}
   const announcementSection =
     '<section class="section" id="announcements-admin" style="margin-top:14px">' +
       '<div class="section-head"><div class="headcopy"><h2>Announcements</h2><span>Send in-app notices without rebuilding SCP Study</span></div></div>' +
-      '<div style="display:grid;gap:8px"><input id="announcementToken" type="password" placeholder="Notification admin token"><select id="announcementZman"><option value="all">All Zmanim</option></select><input id="announcementTitle" maxlength="120" placeholder="Announcement title"><textarea id="announcementBody" maxlength="1200" placeholder="Announcement text" style="min-height:76px"></textarea><div><button class="primary" id="sendAnnouncement" type="button">Send announcement</button> <span id="announcementStatus"></span></div></div></section>';
+      '<div style="display:grid;gap:8px"><input id="announcementToken" type="password" placeholder="Notification admin token"><select id="announcementZman"><option value="all">All Zmanim</option></select><select id="announcementKind"><option value="announcement">Announcement</option><option value="link">Link</option><option value="feedback_request">Feedback request</option><option value="poll">Poll / survey link</option></select><input id="announcementTitle" maxlength="120" placeholder="Notification title"><textarea id="announcementBody" maxlength="1200" placeholder="Notification text" style="min-height:76px"></textarea><input id="announcementActionUrl" maxlength="1000" placeholder="Optional action URL"><input id="announcementActionLabel" maxlength="80" placeholder="Optional action label"><div><button class="primary" id="sendAnnouncement" type="button">Send announcement</button> <span id="announcementStatus"></span></div></div></section>';
 
   const essaySection =
     '<section class="section" id="essay-analytics" style="margin-top:14px">' +
@@ -481,6 +481,9 @@ body[id="top"]{scroll-margin-top:0}
   const zman=document.getElementById('announcementZman');
   const title=document.getElementById('announcementTitle');
   const body=document.getElementById('announcementBody');
+  const kind=document.getElementById('announcementKind');
+  const actionUrl=document.getElementById('announcementActionUrl');
+  const actionLabel=document.getElementById('announcementActionLabel');
   const send=document.getElementById('sendAnnouncement');
   const status=document.getElementById('announcementStatus');
   token.value=sessionStorage.getItem('scpNotificationAdminToken')||'';
@@ -494,7 +497,7 @@ body[id="top"]{scroll-margin-top:0}
   send.addEventListener('click', async function(){
     status.textContent='Sending…';
     try {
-      const response=await fetch('/api/admin/notifications',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token.value},body:JSON.stringify({zman:zman.value,title:title.value,body:body.value})});
+      const response=await fetch('/api/admin/notifications',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token.value},body:JSON.stringify({zman:zman.value,kind:kind.value,title:title.value,body:body.value,action:actionUrl.value?{type:'link',url:actionUrl.value,label:actionLabel.value||'Open'}:null})});
       const data=await response.json();
       if(!response.ok) throw new Error(data.error||'Could not send');
       status.textContent='Sent.'; title.value=''; body.value='';

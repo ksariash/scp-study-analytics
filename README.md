@@ -91,3 +91,8 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 - Isolates chabura profile backfills and feedback issue identity by Zman.
 - Adds D1-backed in-app announcements and targeted issue-resolution notices.
 - Makes the dashboard select the latest configured Zman whenever the URL does not specify one.
+
+
+## Release 15
+
+- Adds Web Push delivery, read/archive inbox state, daily study reminders, anonymous server-data deletion, generic notification actions, and multi-tag feedback.

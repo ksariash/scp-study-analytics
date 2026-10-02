@@ -1,7 +1,7 @@
 {
   "name": "scp-study-analytics",
   "private": true,
-  "version": "14.0.0",
+  "version": "15.0.0",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
@@ -13,5 +13,9 @@
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
+  },
+  "dependencies": {
+    "web-push": "^3.6.7",
+    "@hebcal/core": "^6.11.1"
   }
 }

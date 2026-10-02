@@ -46,3 +46,10 @@ The Study app polls `GET /api/notifications`. Manual announcement creation is pr
 ## Cross-Zman reporting
 
 Question/topic/essay diagnostics must not aggregate across Zmanim. If a future high-level cross-Zman usage view is added, restrict it to genuinely comparable aggregate measures such as event volume or anonymous learner counts.
+
+
+## Push and inbox state
+
+`app_notifications` is the canonical current-Zman inbox. `notification_state` stores per-installation read/archive state. `push_subscriptions` stores browser subscriptions and reminder preferences; `push_config` stores a server-only VAPID keypair generated on first use. Push is a delivery channel for inbox objects.
+
+Daily reminders are evaluated by cron in the subscriber's IANA timezone. Saturday and Hebcal `CHAG` dates are suppressed; users choose Diaspora or Israel holiday rules. Notification `kind` and `action_json` are intentionally extensible.
