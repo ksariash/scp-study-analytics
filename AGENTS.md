@@ -136,3 +136,8 @@ The Study aid usage dashboard shows aggregate opens/plays plus ranked audio file
 Dashboard submodules such as Essay analytics and Study aid usage must work before asynchronous filter initialization finishes. Summary endpoints default a missing Zman to `CURRENT_ZMAN`; a blank initial select must never cause a current-Zman panel to say “Select a supported zman.”
 
 Build checks verify structural dashboard insertion points. Separate dashboard modules reload when shared filters change.
+
+
+## Cross-app navigation
+
+The Analytics Dashboard should expose a clear link to the Announcements application near the dashboard navigation. Treat Study, Analytics, and Announcements as one instructor workflow: cross-app links must be stable, visible, and use the production application URL.
