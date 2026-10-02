@@ -72,6 +72,37 @@ CREATE INDEX IF NOT EXISTS idx_glossary_location ON glossary_events(country, reg
 CREATE INDEX IF NOT EXISTS idx_glossary_category ON glossary_events(category);
 
 
+CREATE TABLE IF NOT EXISTS resource_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_event_id TEXT NOT NULL UNIQUE,
+  installation_id TEXT NOT NULL,
+  cohort TEXT NOT NULL,
+  app_version TEXT,
+  chabura TEXT,
+  chabura_region TEXT,
+  client_ts TEXT,
+  received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  resource_type TEXT NOT NULL CHECK (resource_type IN ('audio','notes')),
+  resource_id TEXT NOT NULL,
+  resource_label TEXT NOT NULL,
+  resource_variant TEXT,
+  page INTEGER,
+  source TEXT,
+  context_kind TEXT,
+  context_id TEXT,
+  category TEXT,
+  mode TEXT NOT NULL CHECK (mode IN ('study','test')),
+  country TEXT, region TEXT, region_code TEXT, city TEXT, timezone TEXT, metro_code TEXT,
+  latitude_rounded REAL, longitude_rounded REAL
+);
+CREATE INDEX IF NOT EXISTS idx_resource_received_at ON resource_events(received_at);
+CREATE INDEX IF NOT EXISTS idx_resource_cohort ON resource_events(cohort);
+CREATE INDEX IF NOT EXISTS idx_resource_chabura ON resource_events(chabura);
+CREATE INDEX IF NOT EXISTS idx_resource_type_id ON resource_events(resource_type,resource_id);
+CREATE INDEX IF NOT EXISTS idx_resource_location ON resource_events(country,region,city);
+CREATE INDEX IF NOT EXISTS idx_resource_category ON resource_events(category);
+
+
 CREATE TABLE IF NOT EXISTS feedback_reports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   client_event_id TEXT NOT NULL UNIQUE,

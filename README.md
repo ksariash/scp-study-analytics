@@ -125,3 +125,12 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 
 - Adds `/api/reminders/next` so Study can display the next eligible reminder using the same Shabbat/Yom Tov logic as delivery.
 - Distinguishes reminders deferred until after Shabbat or after Yom Tov.
+
+
+## Release 20
+
+- Fixes Essay analytics loading before the Zman filter initializes by defaulting summary endpoints to the current Zman.
+- Adds explicit audio-play and note-page resource-event storage.
+- Adds Study aid usage totals for audio, notes, and glossary opens.
+- Adds ranked Most played audio and Most opened note pages panels.
+- Detailed audio/note popularity begins with Study v58; existing glossary history remains available.

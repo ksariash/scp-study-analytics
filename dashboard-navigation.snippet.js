@@ -6,6 +6,7 @@ function enhanceDashboardHtml(html) {
     ["#topics-review", "Topics"],
     ["#locations-review", "Locations"],
     ["#glossary-attention", "Glossary"],
+    ["#study-aid-usage", "Study aids"],
     ["#essay-analytics", "Essays"],
     ["#content-feedback", "Feedback"],
     ["#questions-diagnostics", "Questions"],
@@ -33,7 +34,7 @@ function enhanceDashboardHtml(html) {
 <style id="dashboardNavigationStyles">
 html{scroll-behavior:smooth}
 body[id="top"]{scroll-margin-top:0}
-#overview,#needs-review,#heat-map,#topics-review,#locations-review,#glossary-attention,#essay-analytics,#questions-diagnostics,#activity-over-time{scroll-margin-top:18px}
+#overview,#needs-review,#heat-map,#topics-review,#locations-review,#glossary-attention,#study-aid-usage,#essay-analytics,#questions-diagnostics,#activity-over-time{scroll-margin-top:18px}
 .section-jump{display:flex;align-items:center;gap:9px;margin:0 0 12px;padding:8px 10px;background:#fff;border:1px solid var(--line);border-radius:13px;box-shadow:0 5px 16px rgba(24,41,75,.035);min-width:0}
 .section-jump-label{flex:0 0 auto;color:#708096;font-size:.64rem;font-weight:900;text-transform:uppercase;letter-spacing:.055em}
 .section-jump-links{display:flex;gap:6px;min-width:0;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;-webkit-overflow-scrolling:touch}
@@ -58,6 +59,14 @@ body[id="top"]{scroll-margin-top:0}
 .glossary-analytics-top span{flex:0 0 auto;color:#3156a3;font-size:.68rem;font-weight:900}
 .glossary-recent{margin-top:8px;color:var(--muted);font-size:.65rem;font-weight:750}
 .glossary-note{margin-top:10px}
+.resource-usage-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-bottom:12px}
+.resource-usage-card{padding:12px;border:1px solid #e1e8f2;border-radius:12px;background:#f9fbff}
+.resource-usage-card b{display:block;color:#1f438d;font-size:1.08rem}.resource-usage-card span{display:block;margin-top:2px;color:#66758b;font-size:.66rem;font-weight:750}
+.resource-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.resource-panel{min-width:0;padding:12px;border:1px solid #e2e9f2;border-radius:12px;background:#fff}
+.resource-panel h3{margin:0 0 3px;font-size:.84rem}.resource-panel-sub{display:block;margin-bottom:9px;color:var(--muted);font-size:.64rem}
+.resource-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:8px 0;border-bottom:1px solid #edf1f6}.resource-row:last-child{border-bottom:0}
+.resource-row strong{display:block;font-size:.73rem;line-height:1.35}.resource-row small{display:block;margin-top:2px;color:#7a8799;font-size:.6rem}.resource-row b{color:#3156a3;font-size:.72rem;text-align:right}
+@media(max-width:700px){.resource-usage-overview{grid-template-columns:1fr}.resource-grid{grid-template-columns:1fr}}
 .feedback-controls{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
 .feedback-controls select,.feedback-controls input[type="search"]{min-height:34px;padding:6px 8px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);font:inherit;font-size:.68rem;font-weight:750}
 .feedback-resolved-toggle{display:flex;align-items:center;gap:5px;color:var(--muted);font-size:.66rem;font-weight:800;white-space:nowrap}
@@ -142,6 +151,16 @@ body[id="top"]{scroll-margin-top:0}
 
 
   const announcementSection = '';
+
+  const resourceSection =
+    '<section class="section" id="study-aid-usage" style="margin-top:14px">' +
+      '<div class="section-head"><div class="headcopy"><h2>Study aid usage</h2><span>How often students open audio reviews, course-note pages, and glossary terms</span></div></div>' +
+      '<div id="resourceUsageOverview" class="resource-usage-overview"><div class="feedback-empty">Loading study-aid usage…</div></div>' +
+      '<div class="resource-grid">' +
+        '<div class="resource-panel"><h3>Most played audio</h3><span class="resource-panel-sub">Individual review files, ranked by play starts</span><div id="audioResourceUsage"></div></div>' +
+        '<div class="resource-panel"><h3>Most opened note pages</h3><span class="resource-panel-sub">Concise and full-note pages opened from Study</span><div id="noteResourceUsage"></div></div>' +
+      '</div><p id="resourceUsageNote" class="sample-note"></p>' +
+    '</section>';
 
   const essaySection =
     '<section class="section" id="essay-analytics" style="margin-top:14px">' +
@@ -437,6 +456,27 @@ body[id="top"]{scroll-margin-top:0}
 })();
 </script>`;
 
+  const resourceBehavior = `
+<script id="dashboardResourceAnalyticsScript">
+(() => {
+  const overview=document.getElementById('resourceUsageOverview');
+  const audioEl=document.getElementById('audioResourceUsage');
+  const notesEl=document.getElementById('noteResourceUsage');
+  const noteEl=document.getElementById('resourceUsageNote');
+  if(!overview||!audioEl||!notesEl)return;
+  const esc=value=>String(value??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  let busy=false;
+  function params(){const p=new URLSearchParams();['cohort','chaburaRegion','chabura','category','mode','country','region','city','from','to'].forEach(id=>{const el=document.getElementById(id);if(el?.value)p.set(id==='cohort'?'zman':id,el.value)});return p}
+  function card(value,label,learners){return '<div class="resource-usage-card"><b>'+Number(value||0)+'</b><span>'+esc(label)+' · '+Number(learners||0)+' learner'+(Number(learners)===1?'':'s')+'</span></div>'}
+  function rows(items,empty,noun){if(!items?.length)return '<div class="feedback-empty">'+esc(empty)+'</div>';return items.slice(0,12).map(item=>'<div class="resource-row"><div><strong>'+esc(item.label||item.id)+'</strong><small>'+Number(item.learners||0)+' learner'+(Number(item.learners)===1?'':'s')+(item.page?' · page '+Number(item.page):'')+'</small></div><b>'+Number(item.uses||0)+' '+noun+(Number(item.uses)===1?'':'s')+'</b></div>').join('')}
+  async function load(){if(busy)return;busy=true;try{const r=await fetch('/api/resource-summary?'+params().toString(),{cache:'no-store'});const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not load study-aid usage');overview.innerHTML=card(d.totals?.audio?.uses,'Audio plays',d.totals?.audio?.learners)+card(d.totals?.notes?.uses,'Notes opens',d.totals?.notes?.learners)+card(d.totals?.glossary?.uses,'Glossary opens',d.totals?.glossary?.learners);audioEl.innerHTML=rows(d.audio,'No detailed audio plays recorded yet.','play');notesEl.innerHTML=rows(d.notes,'No detailed note-page opens recorded yet.','open');if(noteEl)noteEl.textContent=d.note||''}catch(error){const msg='<div class="feedback-empty">'+esc(error.message)+'</div>';overview.innerHTML=msg;audioEl.innerHTML=msg;notesEl.innerHTML=msg}finally{busy=false}}
+  ['chaburaRegion','chabura','cohort','category','mode','country','region','city','from','to'].forEach(id=>document.getElementById(id)?.addEventListener('change',()=>setTimeout(load,0)));
+  document.getElementById('clearFilters')?.addEventListener('click',()=>setTimeout(load,0));
+  document.getElementById('refreshData')?.addEventListener('click',()=>setTimeout(load,0));
+  load();
+})();
+</script>`;
+
   const originalFilters = /<section class="filters" aria-label="Dashboard filters">[\s\S]*?<\/section>/;
   const reorderedFilters =
     '<section class="filters" id="dashboard-filters" aria-label="Dashboard filters">\n' +
@@ -470,12 +510,12 @@ body[id="top"]{scroll-margin-top:0}
     .replace('<h2>Topics needing review</h2>', '<h2 id="topics-review">Topics needing review</h2>')
     .replace('<h2>Where students are studying</h2>', '<h2 id="locations-review">Where students are studying</h2>')
     .replace('<h2>Glossary term attention</h2>', '<h2 id="glossary-attention">Glossary term attention</h2>')
-    .replace('<section class="section" style="margin-top:14px"><div class="section-head"><div class="headcopy"><h2>Question diagnostics</h2>', announcementSection + essaySection + feedbackSection + '<section class="section" style="margin-top:14px"><div class="section-head"><div class="headcopy"><h2>Question diagnostics</h2>')
+    .replace('<section class="section" style="margin-top:14px"><div class="section-head"><div class="headcopy"><h2>Question diagnostics</h2>', resourceSection + announcementSection + essaySection + feedbackSection + '<section class="section" style="margin-top:14px"><div class="section-head"><div class="headcopy"><h2>Question diagnostics</h2>')
     .replace('<h2>Question diagnostics</h2>', '<h2 id="questions-diagnostics">Question diagnostics</h2>')
     .replace('<h2>Activity over time</h2>', '<h2 id="activity-over-time">Activity over time</h2>')
     .replace('<section class="overview" id="overview"></section>', inlineNav + '<section class="overview" id="overview"></section>')
     .replace('</head>', styles + '</head>')
-    .replace('</body>', floatingNav + behavior + feedbackBehavior + essayBehavior + announcementBehavior + '</body>');
+    .replace('</body>', floatingNav + behavior + feedbackBehavior + resourceBehavior + essayBehavior + announcementBehavior + '</body>');
 }
 
 export const DASHBOARD_HTML = enhanceDashboardHtml(__DASHBOARD_BASE_HTML);
