@@ -146,11 +146,11 @@ async function dashboardResourceSummary(request, env) {
   catch (error) { return jsonResponse({ error:error.message === 'Unsupported zman' ? 'Select a supported zman' : error.message }, { status:400 }); }
   const { where, params } = queryFilter(url);
   const [totalsResult, rowsResult, glossary] = await Promise.all([
-    stmt(env, \`SELECT resource_type, COUNT(*) uses, COUNT(DISTINCT installation_id) learners FROM resource_events \${where} GROUP BY resource_type\`, params).all(),
-    stmt(env, \`SELECT resource_type, resource_id, MAX(resource_label) label, MAX(resource_variant) variant, MAX(page) page,
+    stmt(env, `SELECT resource_type, COUNT(*) uses, COUNT(DISTINCT installation_id) learners FROM resource_events ${where} GROUP BY resource_type`, params).all(),
+    stmt(env, `SELECT resource_type, resource_id, MAX(resource_label) label, MAX(resource_variant) variant, MAX(page) page,
       COUNT(*) uses, COUNT(DISTINCT installation_id) learners, MIN(received_at) first_seen, MAX(received_at) last_seen
-      FROM resource_events \${where} GROUP BY resource_type, resource_id ORDER BY uses DESC\`, params).all(),
-    stmt(env, \`SELECT COUNT(*) uses, COUNT(DISTINCT installation_id) learners FROM glossary_events \${where}\`, params).first()
+      FROM resource_events ${where} GROUP BY resource_type, resource_id ORDER BY uses DESC`, params).all(),
+    stmt(env, `SELECT COUNT(*) uses, COUNT(DISTINCT installation_id) learners FROM glossary_events ${where}`, params).first()
   ]);
   const totals = { audio:{uses:0,learners:0}, notes:{uses:0,learners:0}, glossary:{uses:Number(glossary?.uses)||0,learners:Number(glossary?.learners)||0} };
   for (const row of resultsOf(totalsResult)) {
