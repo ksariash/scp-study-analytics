@@ -55,7 +55,7 @@ for (const [target, prefix] of targets) {
   if (target === "src/dashboard.js") {
     const probe = source.replace("export const DASHBOARD_HTML = ", "const DASHBOARD_HTML = ");
     const rendered = Function(probe + "\nreturn DASHBOARD_HTML;")();
-    for (const required of ['id="dashboard-filters"','id="chaburaRegion"','id="chabura"']) {
+    for (const required of ['id="dashboard-filters"','id="chaburaRegion"','id="chabura"','id="study-aid-usage"','id="essay-analytics"']) {
       if (!rendered.includes(required)) throw new Error(`Dashboard enhancement missing required marker: ${required}`);
     }
     if (rendered.includes('id="announcements-admin"')) throw new Error("Announcements UI must not live in Analytics.");
