@@ -141,10 +141,7 @@ body[id="top"]{scroll-margin-top:0}
 
 
 
-  const announcementSection =
-    '<section class="section" id="announcements-admin" style="margin-top:14px">' +
-      '<div class="section-head"><div class="headcopy"><h2>Announcements</h2><span>Send in-app notices without rebuilding SCP Study</span></div></div>' +
-      '<div style="display:grid;gap:8px"><input id="announcementToken" type="password" placeholder="Notification admin token"><select id="announcementZman"><option value="all">All Zmanim</option></select><select id="announcementKind"><option value="announcement">Announcement</option><option value="link">Link</option><option value="feedback_request">Feedback request</option><option value="poll">Poll / survey link</option></select><input id="announcementTitle" maxlength="120" placeholder="Notification title"><textarea id="announcementBody" maxlength="1200" placeholder="Notification text" style="min-height:76px"></textarea><input id="announcementActionUrl" maxlength="1000" placeholder="Optional action URL"><input id="announcementActionLabel" maxlength="80" placeholder="Optional action label"><div><button class="primary" id="sendAnnouncement" type="button">Send announcement</button> <span id="announcementStatus"></span></div></div></section>';
+  const announcementSection = '';
 
   const essaySection =
     '<section class="section" id="essay-analytics" style="margin-top:14px">' +
@@ -440,18 +437,7 @@ body[id="top"]{scroll-margin-top:0}
 })();
 </script>`;
 
-  const originalFilters =
-    '<section class="filters" aria-label="Dashboard filters">\n' +
-    '    <div class="field cohort"><label for="cohort">Zman</label><select id="cohort"><option value="">All Zmanim</option></select></div>\n' +
-    '    <div class="field mode"><label for="mode">Mode</label><select id="mode"><option value="">Study + Test</option><option value="study">Study</option><option value="test">Practice test</option></select></div>\n' +
-    '    <div class="field country"><label for="country">Country</label><select id="country"><option value="">All countries</option></select></div>\n' +
-    '    <div class="field region"><label for="region">Region</label><select id="region"><option value="">All regions</option></select></div>\n' +
-    '    <div class="field city"><label for="city">City</label><select id="city"><option value="">All cities</option></select></div>\n' +
-    '    <div class="field category"><label for="category">Topic</label><select id="category"><option value="">All topics</option></select></div>\n' +
-    '    <div class="field from"><label for="from">From</label><input id="from" type="date" /></div>\n' +
-    '    <div class="field to"><label for="to">Through</label><input id="to" type="date" /></div>\n' +
-    '    <button class="clear" id="clearFilters" type="button">Clear filters</button>\n' +
-    '  </section>';
+  const originalFilters = /<section class="filters" aria-label="Dashboard filters">[\s\S]*?<\/section>/;
   const reorderedFilters =
     '<section class="filters" id="dashboard-filters" aria-label="Dashboard filters">\n' +
     '    <div class="field cohort"><label for="cohort">Zman</label><select id="cohort" required><option value="" disabled>Select Zman…</option></select></div>\n' +
@@ -468,37 +454,7 @@ body[id="top"]{scroll-margin-top:0}
     '  </section>';
 
 
-  const announcementBehavior = `
-<script id="dashboardAnnouncementScript">
-(async function(){
-  const token=document.getElementById('announcementToken');
-  const zman=document.getElementById('announcementZman');
-  const title=document.getElementById('announcementTitle');
-  const body=document.getElementById('announcementBody');
-  const kind=document.getElementById('announcementKind');
-  const actionUrl=document.getElementById('announcementActionUrl');
-  const actionLabel=document.getElementById('announcementActionLabel');
-  const send=document.getElementById('sendAnnouncement');
-  const status=document.getElementById('announcementStatus');
-  token.value=sessionStorage.getItem('scpNotificationAdminToken')||'';
-  token.addEventListener('change',function(){sessionStorage.setItem('scpNotificationAdminToken',token.value)});
-  try {
-    const response=await fetch('/api/options',{cache:'no-store'});
-    const data=await response.json();
-    (data.zmanOptions||[]).forEach(function(item){const option=document.createElement('option');option.value=item.id;option.textContent=item.name||item.id;zman.appendChild(option)});
-    if(data.latestZmanId) zman.value=data.latestZmanId;
-  } catch (_) {}
-  send.addEventListener('click', async function(){
-    status.textContent='Sending…';
-    try {
-      const response=await fetch('/api/admin/notifications',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token.value},body:JSON.stringify({zman:zman.value,kind:kind.value,title:title.value,body:body.value,action:actionUrl.value?{type:'link',url:actionUrl.value,label:actionLabel.value||'Open'}:null})});
-      const data=await response.json();
-      if(!response.ok) throw new Error(data.error||'Could not send');
-      status.textContent='Sent.'; title.value=''; body.value='';
-    } catch (error) { status.textContent=error.message; }
-  });
-})();
-</script>`;
+  const announcementBehavior = '';
 
   return html
     .replace('<body>', '<body id="top">')

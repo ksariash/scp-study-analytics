@@ -111,3 +111,11 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 - Uses Zman terminology in dashboard filters and removes redundant Zman explanatory copy.
 - Compacts the dashboard filter grid into balanced five-column/two-column rows.
 - Places Peak study times above Answer submissions by day.
+
+
+## Release 18
+
+- Repairs the dashboard enhancement bug that left Chabura filters missing while JavaScript expected them, which prevented data from loading.
+- Removes announcement composition from the Analytics dashboard.
+- Adds rich notification body support for the dedicated Announcements app.
+- Adds build-time dashboard marker checks so a missed HTML enhancement fails the build.

@@ -514,9 +514,11 @@ async function ensureNotificationTables(env) {
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS app_notifications (
     id TEXT PRIMARY KEY, kind TEXT NOT NULL, zman TEXT, title TEXT NOT NULL, body TEXT NOT NULL,
     created_at TEXT NOT NULL, expires_at TEXT, target_installation_id TEXT, content_type TEXT,
-    content_id TEXT, action_json TEXT, dedupe_key TEXT UNIQUE
+    content_id TEXT, body_html TEXT, action_json TEXT, dedupe_key TEXT UNIQUE
   )`).run();
   try { await env.DB.prepare('ALTER TABLE app_notifications ADD COLUMN action_json TEXT').run(); }
+  catch (error) { if (!/duplicate column/i.test(String(error?.message || error))) throw error; }
+  try { await env.DB.prepare('ALTER TABLE app_notifications ADD COLUMN body_html TEXT').run(); }
   catch (error) { if (!/duplicate column/i.test(String(error?.message || error))) throw error; }
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS notification_state (
     notification_id TEXT NOT NULL, installation_id TEXT NOT NULL, read_at TEXT, archived_at TEXT,
@@ -578,8 +580,8 @@ async function createIssueResolvedNotifications(env,input){
 async function notificationsFeed(request,env){
   await ensureNotificationTables(env);const url=new URL(request.url),zman=normalizeZman(url.searchParams.get('zman')||url.searchParams.get('cohort')||CURRENT_ZMAN),installationId=text(url.searchParams.get('installationId'),100),includeArchived=url.searchParams.get('includeArchived')==='1';
   if(!SUPPORTED_ZMANIM.has(zman)||!installationId)return jsonResponse({error:'Invalid notification request'},{status:400});
-  const rows=await env.DB.prepare(`SELECT n.id,n.kind,n.zman,n.title,n.body,n.created_at,n.expires_at,n.content_type,n.content_id,n.action_json,s.read_at,s.archived_at FROM app_notifications n LEFT JOIN notification_state s ON s.notification_id=n.id AND s.installation_id=? WHERE (n.zman IS NULL OR n.zman=?) AND (n.target_installation_id IS NULL OR n.target_installation_id=?) AND (n.expires_at IS NULL OR n.expires_at>?) AND (?=1 OR s.archived_at IS NULL) ORDER BY n.created_at DESC LIMIT 100`).bind(installationId,zman,installationId,new Date().toISOString(),includeArchived?1:0).all();
-  const notifications=resultsOf(rows).map(r=>({id:r.id,kind:r.kind,zman:r.zman||zman,title:r.title,body:r.body,createdAt:r.created_at,expiresAt:r.expires_at,contentType:r.content_type,contentId:r.content_id,action:parseAction(r.action_json),readAt:r.read_at||null,archivedAt:r.archived_at||null})),cors=notificationCors(request,env);
+  const rows=await env.DB.prepare(`SELECT n.id,n.kind,n.zman,n.title,n.body,n.body_html,n.created_at,n.expires_at,n.content_type,n.content_id,n.action_json,s.read_at,s.archived_at FROM app_notifications n LEFT JOIN notification_state s ON s.notification_id=n.id AND s.installation_id=? WHERE (n.zman IS NULL OR n.zman=?) AND (n.target_installation_id IS NULL OR n.target_installation_id=?) AND (n.expires_at IS NULL OR n.expires_at>?) AND (?=1 OR s.archived_at IS NULL) ORDER BY n.created_at DESC LIMIT 100`).bind(installationId,zman,installationId,new Date().toISOString(),includeArchived?1:0).all();
+  const notifications=resultsOf(rows).map(r=>({id:r.id,kind:r.kind,zman:r.zman||zman,title:r.title,body:r.body,bodyHtml:r.body_html||null,createdAt:r.created_at,expiresAt:r.expires_at,contentType:r.content_type,contentId:r.content_id,action:parseAction(r.action_json),readAt:r.read_at||null,archivedAt:r.archived_at||null})),cors=notificationCors(request,env);
   return jsonResponse({zman,unread:notifications.filter(n=>!n.readAt&&!n.archivedAt).length,notifications},{headers:cors||{}});
 }
 async function updateNotificationState(request,env){
@@ -712,7 +714,7 @@ load();
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === '/api/health' && request.method === 'GET') return jsonResponse({ ok:true, service:'scp-study-analytics', version:17, feedback:true, push:true });
+    if (url.pathname === '/api/health' && request.method === 'GET') return jsonResponse({ ok:true, service:'scp-study-analytics', version:18, feedback:true, push:true });
     if (url.pathname === '/api/feedback/report' && request.method === 'OPTIONS') {
       const cors = feedbackCors(request, env);
       return cors ? new Response(null, { status:204, headers:cors }) : new Response(null, { status:403 });

@@ -52,6 +52,14 @@ for (const [target, prefix] of targets) {
     if (!source.startsWith("export const DASHBOARD_HTML = ")) throw new Error("Unexpected dashboard source format");
     source = source.replace("export const DASHBOARD_HTML = ", "const __DASHBOARD_BASE_HTML = ") + "\n" + dashboardEnhancement;
   }
+  if (target === "src/dashboard.js") {
+    const probe = source.replace("export const DASHBOARD_HTML = ", "const DASHBOARD_HTML = ");
+    const rendered = Function(probe + "\nreturn DASHBOARD_HTML;")();
+    for (const required of ['id="dashboard-filters"','id="chaburaRegion"','id="chabura"']) {
+      if (!rendered.includes(required)) throw new Error(`Dashboard enhancement missing required marker: ${required}`);
+    }
+    if (rendered.includes('id="announcements-admin"')) throw new Error("Announcements UI must not live in Analytics.");
+  }
   await writeFile(target, source, "utf8");
   execFileSync(process.execPath, ["--check", target], { stdio: "inherit" });
 }

@@ -252,6 +252,7 @@ CREATE TABLE IF NOT EXISTS app_notifications (
   target_installation_id TEXT,
   content_type TEXT,
   content_id TEXT,
+  body_html TEXT,
   action_json TEXT,
   dedupe_key TEXT UNIQUE
 );

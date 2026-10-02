@@ -105,3 +105,10 @@ For dashboard filters:
 Prefer familiar icons for compact utility actions when the meaning is unambiguous, with an accessible `aria-label` and title. Keep text for actions whose meaning would be ambiguous as an icon alone.
 
 Avoid redundant Zman explanatory copy above or below the filter card. The selected Zman in the control is sufficient.
+
+
+## Dashboard enhancement invariant
+
+The dashboard is assembled from legacy split HTML plus `dashboard-navigation.snippet.js`. Any structural enhancement must be verified against the final rendered dashboard, not just syntax-checked. The build must fail unless the final HTML contains `dashboard-filters`, `chaburaRegion`, and `chabura`.
+
+Announcements/composer administration no longer belongs in this repository. Keep Analytics focused on diagnostics, feedback, notification delivery/read state, and shared push/reminder storage. Dedicated announcement administration lives in `scp-study-announcements`.
