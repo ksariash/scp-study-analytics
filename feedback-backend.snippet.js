@@ -1,5 +1,5 @@
 import webpush from 'web-push';
-import { getHolidaysOnDate, flags } from '@hebcal/core';
+import { getHolidaysOnDate, flags, GeoLocation, Zmanim } from '@hebcal/core';
 
 const FEEDBACK_TYPES = new Set(['question', 'essay_prompt', 'essay_pairing']);
 const FEEDBACK_REASONS = new Set(['inaccurate', 'incomplete', 'confusing', 'typo', 'audio_link', 'notes_link', 'other']);
@@ -530,8 +530,12 @@ async function ensureNotificationTables(env) {
     endpoint TEXT PRIMARY KEY, installation_id TEXT NOT NULL, zman TEXT NOT NULL, p256dh TEXT NOT NULL,
     auth TEXT NOT NULL, timezone TEXT NOT NULL, reminder_enabled INTEGER NOT NULL DEFAULT 0,
     reminder_time TEXT, israel_calendar INTEGER NOT NULL DEFAULT 0, last_reminder_local_date TEXT,
-    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    latitude_rounded REAL, longitude_rounded REAL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   )`).run();
+  for (const [column, type] of [['latitude_rounded','REAL'],['longitude_rounded','REAL']]) {
+    try { await env.DB.prepare(`ALTER TABLE push_subscriptions ADD COLUMN ${column} ${type}`).run(); }
+    catch (error) { if (!/duplicate column/i.test(String(error?.message || error))) throw error; }
+  }
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_app_notifications_feed ON app_notifications(zman, created_at DESC)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_app_notifications_target ON app_notifications(target_installation_id, created_at DESC)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_notification_state_install ON notification_state(installation_id, archived_at, read_at)').run();
@@ -559,9 +563,11 @@ async function sendPushSubscription(env,row,payload){
   try{await webpush.sendNotification({endpoint:row.endpoint,keys:{p256dh:row.p256dh,auth:row.auth}},JSON.stringify(payload),{TTL:86400});return true}catch(error){const statusCode=error instanceof webpush.WebPushError?error.statusCode:Number(error?.statusCode||0);if(statusCode===404||statusCode===410)await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint=?').bind(row.endpoint).run();return false}
 }
 async function pushNotificationToAudience(env,n,installationIds=null){
-  let sql='SELECT endpoint,installation_id,p256dh,auth FROM push_subscriptions WHERE zman=?',params=[n.zman||CURRENT_ZMAN];
-  if(Array.isArray(installationIds)&&installationIds.length){const ids=[...new Set(installationIds.filter(Boolean))];sql+=` AND installation_id IN (${ids.map(()=>'?').join(',')})`;params.push(...ids);}
-  const rows=resultsOf(await env.DB.prepare(sql).bind(...params).all()),action=parseAction(n.actionJson||n.action_json),payload={title:n.title,body:n.body,tag:'scp-'+n.id,data:{notificationId:n.id,zman:n.zman||CURRENT_ZMAN,kind:n.kind,url:action?.url||'/?notifications=1'}};
+  const clauses=[],params=[];
+  if(n.zman){clauses.push('zman=?');params.push(n.zman);}
+  if(Array.isArray(installationIds)&&installationIds.length){const ids=[...new Set(installationIds.filter(Boolean))];clauses.push(`installation_id IN (${ids.map(()=>'?').join(',')})`);params.push(...ids);}
+  const sql='SELECT endpoint,installation_id,p256dh,auth FROM push_subscriptions'+(clauses.length?' WHERE '+clauses.join(' AND '):'');
+  const rows=resultsOf(await env.DB.prepare(sql).bind(...params).all()),action=parseAction(n.actionJson||n.action_json),payload={title:n.title,body:n.body,tag:'scp-'+n.id,data:{notificationId:n.id,zman:n.zman||null,kind:n.kind,url:action?.url||'/?notifications=1'}};
   await Promise.all(rows.map(row=>sendPushSubscription(env,row,payload)));
 }
 async function createIssueResolvedNotifications(env,input){
@@ -590,19 +596,49 @@ async function upsertPushSubscription(request,env){
   const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400,headers:cors})}
   const installationId=text(body?.installationId,100),zman=normalizeZman(body?.zman||body?.cohort||CURRENT_ZMAN),sub=normalizeSubscription(body?.subscription),timezone=text(body?.timezone,100)||'UTC',reminderEnabled=body?.reminderEnabled?1:0,reminderTime=/^\d{2}:\d{2}$/.test(String(body?.reminderTime||''))?String(body.reminderTime):null,israelCalendar=body?.israelCalendar?1:0;
   if(!installationId||!SUPPORTED_ZMANIM.has(zman)||!sub)return jsonResponse({error:'Invalid push subscription'},{status:400,headers:cors});
-  const now=new Date().toISOString();await env.DB.prepare(`INSERT INTO push_subscriptions (endpoint,installation_id,zman,p256dh,auth,timezone,reminder_enabled,reminder_time,israel_calendar,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET installation_id=excluded.installation_id,zman=excluded.zman,p256dh=excluded.p256dh,auth=excluded.auth,timezone=excluded.timezone,reminder_enabled=excluded.reminder_enabled,reminder_time=excluded.reminder_time,israel_calendar=excluded.israel_calendar,updated_at=excluded.updated_at`).bind(sub.endpoint,installationId,zman,sub.p256dh,sub.auth,timezone,reminderEnabled,reminderTime,israelCalendar,now,now).run();
+  const now=new Date().toISOString(),cf=request.cf||{},latitude=roundCoord(cf.latitude),longitude=roundCoord(cf.longitude);
+  await env.DB.prepare(`INSERT INTO push_subscriptions (endpoint,installation_id,zman,p256dh,auth,timezone,reminder_enabled,reminder_time,israel_calendar,latitude_rounded,longitude_rounded,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET installation_id=excluded.installation_id,zman=excluded.zman,p256dh=excluded.p256dh,auth=excluded.auth,timezone=excluded.timezone,reminder_enabled=excluded.reminder_enabled,reminder_time=excluded.reminder_time,israel_calendar=excluded.israel_calendar,latitude_rounded=excluded.latitude_rounded,longitude_rounded=excluded.longitude_rounded,updated_at=excluded.updated_at`)
+    .bind(sub.endpoint,installationId,zman,sub.p256dh,sub.auth,timezone,reminderEnabled,reminderTime,israelCalendar,latitude,longitude,now,now).run();
   return jsonResponse({ok:true,reminderEnabled:!!reminderEnabled,reminderTime,israelCalendar:!!israelCalendar},{headers:cors});
 }
 async function removePushSubscription(request,env){const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400,headers:cors})}const installationId=text(body?.installationId,100),endpoint=text(body?.endpoint,2000);if(endpoint)await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint=?').bind(endpoint).run();else if(installationId)await env.DB.prepare('DELETE FROM push_subscriptions WHERE installation_id=?').bind(installationId).run();else return jsonResponse({error:'Invalid unsubscribe request'},{status:400,headers:cors});return jsonResponse({ok:true},{headers:cors});}
 function localClock(date,timezone){try{const parts=new Intl.DateTimeFormat('en-CA',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date),v=Object.fromEntries(parts.filter(p=>p.type!=='literal').map(p=>[p.type,p.value]));return{date:`${v.year}-${v.month}-${v.day}`,time:`${v.hour}:${v.minute}`,year:Number(v.year),month:Number(v.month),day:Number(v.day)}}catch(_){return null}}
-function isStudyReminderBlocked(clock,israelCalendar){const date=new Date(Date.UTC(clock.year,clock.month-1,clock.day,12));if(date.getUTCDay()===6)return true;return(getHolidaysOnDate(date,!!israelCalendar)||[]).some(event=>(event.getFlags()&flags.CHAG)!==0);}
-async function sendDailyStudyReminders(env){await ensureNotificationTables(env);const now=new Date(),rows=resultsOf(await env.DB.prepare('SELECT endpoint,installation_id,zman,p256dh,auth,timezone,reminder_time,israel_calendar,last_reminder_local_date FROM push_subscriptions WHERE reminder_enabled=1 AND reminder_time IS NOT NULL').all());for(const row of rows){const clock=localClock(now,row.timezone);if(!clock||clock.time!==row.reminder_time||clock.date===row.last_reminder_local_date)continue;await env.DB.prepare('UPDATE push_subscriptions SET last_reminder_local_date=?,updated_at=? WHERE endpoint=?').bind(clock.date,now.toISOString(),row.endpoint).run();if(isStudyReminderBlocked(clock,Number(row.israel_calendar)))continue;await sendPushSubscription(env,row,{title:'Time to study',body:'Your daily SCP Study reminder.',tag:'scp-daily-study-'+clock.date,data:{kind:'study_reminder',zman:row.zman,url:'/'}});}}
-function validNotificationAdmin(request,env){const expected=text(env.NOTIFICATION_ADMIN_TOKEN,500),auth=request.headers.get('Authorization')||'',accessEmail=text(request.headers.get('Cf-Access-Authenticated-User-Email'),320);if(accessEmail)return true;const provided=auth.startsWith('Bearer ')?auth.slice(7):'';return!!expected&&provided===expected;}
+function hasChag(events){return(events||[]).some(event=>(event.getFlags()&flags.CHAG)!==0);}
+function isStudyReminderBlocked(now,clock,row){
+  const il=!!Number(row.israel_calendar);
+  const civilDate=new Date(Date.UTC(clock.year,clock.month-1,clock.day,12));
+  const latitude=Number(row.latitude_rounded),longitude=Number(row.longitude_rounded);
+  if(Number.isFinite(latitude)&&Number.isFinite(longitude)){
+    try{
+      const gloc=new GeoLocation(null,latitude,longitude,0,row.timezone);
+      const hdate=Zmanim.makeSunsetAwareHDate(gloc,now,false);
+      if(hdate.greg().getDay()===6||hasChag(getHolidaysOnDate(hdate,il)))return true;
+      const zmanim=new Zmanim(gloc,civilDate,false),sunset=zmanim.sunset(),tzeit=zmanim.tzeit();
+      const twilight=Number.isFinite(sunset?.getTime?.())&&Number.isFinite(tzeit?.getTime?.())&&now>=sunset&&now<tzeit;
+      if(twilight&&(civilDate.getUTCDay()===6||hasChag(getHolidaysOnDate(civilDate,il))))return true;
+      return false;
+    }catch(_){}
+  }
+  if(civilDate.getUTCDay()===6)return true;
+  return hasChag(getHolidaysOnDate(civilDate,il));
+}
+async function sendDailyStudyReminders(env){
+  await ensureNotificationTables(env);
+  const now=new Date(),rows=resultsOf(await env.DB.prepare('SELECT endpoint,installation_id,zman,p256dh,auth,timezone,reminder_time,israel_calendar,last_reminder_local_date,latitude_rounded,longitude_rounded FROM push_subscriptions WHERE reminder_enabled=1 AND reminder_time IS NOT NULL').all());
+  for(const row of rows){
+    const clock=localClock(now,row.timezone);
+    if(!clock||clock.time!==row.reminder_time||clock.date===row.last_reminder_local_date)continue;
+    await env.DB.prepare('UPDATE push_subscriptions SET last_reminder_local_date=?,updated_at=? WHERE endpoint=?').bind(clock.date,now.toISOString(),row.endpoint).run();
+    if(isStudyReminderBlocked(now,clock,row))continue;
+    await sendPushSubscription(env,row,{title:'Time to study',body:'Your daily SCP Study reminder.',tag:'scp-daily-study-'+clock.date,data:{kind:'study_reminder',zman:row.zman,url:'/'}});
+  }
+}
+function validNotificationAdmin(request,env){const expected=text(env.NOTIFICATION_ADMIN_TOKEN,500),auth=request.headers.get('Authorization')||'',provided=auth.startsWith('Bearer ')?auth.slice(7):'';return!!expected&&provided===expected;}
 async function createManualNotification(request,env){
   if(!validNotificationAdmin(request,env))return jsonResponse({error:'Cloudflare Access or NOTIFICATION_ADMIN_TOKEN is required'},{status:401});await ensureNotificationTables(env);let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400})}
   const title=text(body?.title,120),message=text(body?.body,1200),kind=text(body?.kind,40)||'announcement',rawZman=text(body?.zman,100),zman=rawZman&&rawZman!=='all'?normalizeZman(rawZman):null,expiresAt=body?.expiresAt?validIsoDate(body.expiresAt):null,action=parseAction(body?.action);
-  if(!title||!message||(zman&&!SUPPORTED_ZMANIM.has(zman)))return jsonResponse({error:'Invalid notification'},{status:400});const createdAt=new Date().toISOString(),id=crypto.randomUUID(),deliveryZman=zman||CURRENT_ZMAN,actionJson=action?JSON.stringify(action):null;
-  await env.DB.prepare('INSERT INTO app_notifications (id,kind,zman,title,body,created_at,expires_at,target_installation_id,content_type,content_id,action_json,dedupe_key) VALUES (?,?,?,?,?,?,?,NULL,NULL,NULL,?,NULL)').bind(id,kind,zman,title,message,createdAt,expiresAt,actionJson).run();await pushNotificationToAudience(env,{id,kind,zman:deliveryZman,title,body:message,actionJson});return jsonResponse({ok:true,id,kind,zman,title,createdAt,expiresAt,action});
+  if(!title||!message||(zman&&!SUPPORTED_ZMANIM.has(zman)))return jsonResponse({error:'Invalid notification'},{status:400});const createdAt=new Date().toISOString(),id=crypto.randomUUID(),actionJson=action?JSON.stringify(action):null;
+  await env.DB.prepare('INSERT INTO app_notifications (id,kind,zman,title,body,created_at,expires_at,target_installation_id,content_type,content_id,action_json,dedupe_key) VALUES (?,?,?,?,?,?,?,NULL,NULL,NULL,?,NULL)').bind(id,kind,zman,title,message,createdAt,expiresAt,actionJson).run();await pushNotificationToAudience(env,{id,kind,zman,title,body:message,actionJson});return jsonResponse({ok:true,id,kind,zman,title,createdAt,expiresAt,action});
 }
 async function deleteAnonymousServerData(request,env){
   const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400,headers:cors})}const installationId=text(body?.installationId,100);if(!installationId)return jsonResponse({error:'Installation ID required'},{status:400,headers:cors});
@@ -676,13 +712,20 @@ load();
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === '/api/health' && request.method === 'GET') return jsonResponse({ ok:true, service:'scp-study-analytics', version:4, feedback:true });
+    if (url.pathname === '/api/health' && request.method === 'GET') return jsonResponse({ ok:true, service:'scp-study-analytics', version:16, feedback:true, push:true });
     if (url.pathname === '/api/feedback/report' && request.method === 'OPTIONS') {
       const cors = feedbackCors(request, env);
       return cors ? new Response(null, { status:204, headers:cors }) : new Response(null, { status:403 });
     }
     if (url.pathname === '/api/feedback/report' && request.method === 'POST') return ingestFeedbackReport(request, env);
-    if (url.pathname === '/api/notifications' && request.method === 'OPTIONS') {
+    if (request.method === 'OPTIONS' && (
+      url.pathname === '/api/notifications' ||
+      url.pathname === '/api/notifications/state' ||
+      url.pathname === '/api/push/config' ||
+      url.pathname === '/api/push/subscribe' ||
+      url.pathname === '/api/push/unsubscribe' ||
+      url.pathname === '/api/data/delete'
+    )) {
       const cors = notificationCors(request, env);
       return cors ? new Response(null, { status:204, headers:cors }) : new Response(null, { status:403 });
     }

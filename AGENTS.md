@@ -74,3 +74,8 @@ Daily reminders use the device IANA timezone and chosen HH:MM. Suppress the enti
 Notification `kind` and `action_json` are extensible. Unknown kinds must still render safely; unknown actions must be ignored.
 
 Feedback reports may contain multiple tags. Supported UI vocabulary: Inaccurate, Incomplete, Confusing, Typo, Wrong audio, Wrong notes, Other.
+
+
+## Reminder boundary correctness
+
+Reminder cron runs every minute so any HH:MM selection is reachable. When Cloudflare supplies approximate request coordinates, store only the existing one-decimal rounded latitude/longitude with the push subscription. Use that approximate location plus the IANA timezone for sunset-aware Hebrew dates and tzeit; this prevents Friday-night/Saturday-night and Yom-Tov boundary notifications. Fall back to civil-day suppression only when location is unavailable.

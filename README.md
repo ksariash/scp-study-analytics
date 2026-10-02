@@ -96,3 +96,11 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 ## Release 15
 
 - Adds Web Push delivery, read/archive inbox state, daily study reminders, anonymous server-data deletion, generic notification actions, and multi-tag feedback.
+
+
+## Release 16
+
+- Fixes CORS preflight coverage for notification state, push subscription, and anonymous data-deletion APIs.
+- Runs reminder cron every minute so arbitrary chosen HH:MM times can fire.
+- Uses broad IP-derived location with Hebcal sunset/tzeit calculations to suppress reminders throughout Shabbat and Yom Tov boundaries.
+- Keeps global announcement push delivery global across Zmanim and hardens notification-admin authentication.

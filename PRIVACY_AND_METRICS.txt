@@ -27,3 +27,9 @@ A Zman is the study period. Analytics stores its stable backend ID (for example 
 NOTIFICATIONS
 -------------
 General announcements are not personalized. Issue-resolution notices may be targeted to the anonymous installation ID that submitted the feedback report so the reporting device can see that the issue was addressed. No name or email is required.
+
+
+Push notifications and study reminders
+--------------------------------------
+Push reminder subscriptions store the browser endpoint, push keys, active Zman, IANA timezone, reminder time, Israel/Diaspora calendar choice, and broad IP-derived rounded latitude/longitude so Shabbat/Yom Tov boundaries can be evaluated at the subscriber's approximate location. No GPS permission is requested.
+The VAPID private key is stored only in D1 and is never returned to the Study app.
