@@ -257,6 +257,28 @@ async function ensureGlossaryTable(env) {
 }
 
 
+let resourceTableReady = false;
+async function ensureResourceTable(env) {
+  if (resourceTableReady) return;
+  await env.DB.prepare(\`CREATE TABLE IF NOT EXISTS resource_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, client_event_id TEXT NOT NULL UNIQUE, installation_id TEXT NOT NULL,
+    cohort TEXT NOT NULL, app_version TEXT, chabura TEXT, chabura_region TEXT, client_ts TEXT,
+    received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    resource_type TEXT NOT NULL CHECK (resource_type IN ('audio','notes')), resource_id TEXT NOT NULL,
+    resource_label TEXT NOT NULL, resource_variant TEXT, page INTEGER, source TEXT, context_kind TEXT, context_id TEXT,
+    category TEXT, mode TEXT NOT NULL CHECK (mode IN ('study','test')),
+    country TEXT, region TEXT, region_code TEXT, city TEXT, timezone TEXT, metro_code TEXT,
+    latitude_rounded REAL, longitude_rounded REAL
+  )\`).run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_resource_received_at ON resource_events(received_at)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_resource_cohort ON resource_events(cohort)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_resource_type_id ON resource_events(resource_type,resource_id)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_resource_location ON resource_events(country,region,city)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_resource_category ON resource_events(category)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_resource_chabura ON resource_events(chabura)').run();
+  resourceTableReady = true;
+}
+
 let essayTablesReady = false;
 async function ensureEssayTables(env) {
   if (essayTablesReady) return;
@@ -328,8 +350,9 @@ let chaburaStorageReady = false;
 async function ensureChaburaStorage(env) {
   if (chaburaStorageReady) return;
   await ensureGlossaryTable(env);
+  await ensureResourceTable(env);
   await ensureEssayTables(env);
-  const tables = ['events', 'glossary_events', 'essay_round_events', 'essay_pairing_events'];
+  const tables = ['events', 'glossary_events', 'resource_events', 'essay_round_events', 'essay_pairing_events'];
   for (const table of tables) {
     const info = resultsOf(await env.DB.prepare(`PRAGMA table_info(${table})`).all());
     const columns = new Set(info.map(row => String(row.name)));
@@ -351,11 +374,12 @@ async function ensureChaburaStorage(env) {
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_learner_profiles_chabura ON learner_profiles(chabura)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_events_chabura ON events(chabura)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_glossary_chabura ON glossary_events(chabura)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_resource_chabura ON resource_events(chabura)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_essay_round_chabura ON essay_round_events(chabura)').run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_essay_pair_chabura ON essay_pairing_events(chabura)').run();
   for (const legacy of LEGACY_ZMAN_KEYS) {
     if (!legacy || legacy === CURRENT_ZMAN) continue;
-    for (const table of ['events', 'glossary_events', 'essay_round_events', 'essay_pairing_events', 'learner_profiles']) {
+    for (const table of ['events', 'glossary_events', 'resource_events', 'essay_round_events', 'essay_pairing_events', 'learner_profiles']) {
       await env.DB.prepare(`UPDATE ${table} SET cohort=? WHERE cohort=?`).bind(CURRENT_ZMAN, legacy).run();
     }
   }
@@ -443,6 +467,20 @@ function normalizeGlossaryEvent(raw) {
 }
 
 
+function normalizeResourceEvent(raw) {
+  if (!raw || typeof raw !== 'object') throw new Error('Invalid resource event');
+  const eventId=text(raw.eventId,100), installationId=text(raw.installationId,100), cohort=normalizeZman(raw.zman??raw.cohort);
+  const catalog=catalogForZman(cohort), appVersion=text(raw.appVersion,32), resourceType=text(raw.resourceType,16);
+  const resourceId=text(raw.resourceId,220), resourceLabel=text(raw.resourceLabel,240), resourceVariant=text(raw.resourceVariant,300);
+  const source=text(raw.source,40)||'other', contextKind=text(raw.contextKind,30)||'other', contextId=text(raw.contextId,120), mode=text(raw.mode,10);
+  const rawPage=Number(raw.page), page=Number.isInteger(rawPage)&&rawPage>=1&&rawPage<=10000?rawPage:null;
+  let category=text(raw.category,160);
+  if(contextKind==='question'&&contextId){const q=catalog.questionMap.get(Number(contextId));if(q)category=q.category;}
+  const profile=normalizeChaburaFields(raw);
+  if(!eventId||!installationId||!cohort||!['audio','notes'].includes(resourceType)||!resourceId||!resourceLabel||!MODES.has(mode)) throw new Error('Malformed resource event');
+  return {kind:'resource',eventId,installationId,cohort,appVersion,clientTs:validIsoDate(raw.clientTs),resourceType,resourceId,resourceLabel,resourceVariant,page,source,contextKind,contextId,category,mode,...profile};
+}
+
 function normalizeEssayIdentity(raw) {
   const eventId = text(raw.eventId, 100);
   const installationId = text(raw.installationId, 100);
@@ -510,6 +548,7 @@ function normalizeEssayPairingEvent(raw) {
 function normalizeIncomingEvent(raw) {
   if (raw?.kind === 'profile') return normalizeProfileEvent(raw);
   if (raw?.kind === 'glossary') return normalizeGlossaryEvent(raw);
+  if (raw?.kind === 'resource') return normalizeResourceEvent(raw);
   if (raw?.kind === 'essay_round_start' || raw?.kind === 'essay_round_complete') return normalizeEssayRoundEvent(raw);
   if (raw?.kind === 'essay_pairing') return normalizeEssayPairingEvent(raw);
   return { kind: 'answer', ...normalizeEvent(raw) };
