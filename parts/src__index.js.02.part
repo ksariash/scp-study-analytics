@@ -19,11 +19,11 @@
     client_event_id, installation_id, cohort, app_version, chabura, chabura_region, client_ts, term_id, term, source, question_id, category, mode,
     country, region, region_code, city, timezone, metro_code, latitude_rounded, longitude_rounded
   ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
-  const resourceSql = \`INSERT OR IGNORE INTO resource_events (
+  const resourceSql = `INSERT OR IGNORE INTO resource_events (
     client_event_id, installation_id, cohort, app_version, chabura, chabura_region, client_ts, resource_type, resource_id, resource_label,
     resource_variant, page, source, context_kind, context_id, category, mode,
     country, region, region_code, city, timezone, metro_code, latitude_rounded, longitude_rounded
-  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)\`;
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
   const essayRoundSql = `INSERT OR IGNORE INTO essay_round_events (
     client_event_id, installation_id, cohort, app_version, chabura, chabura_region, client_ts, event_type, round_id, session_id, essay_id, source,
     attempt_in_round, total_facts, first_try_correct, total_wrong, perfect, duration_bucket, essay_content_hash,
