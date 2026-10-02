@@ -21,6 +21,7 @@ function enhanceDashboardHtml(html) {
     '<nav class="section-jump" aria-label="Dashboard sections">' +
       '<span class="section-jump-label">Jump to</span>' +
       '<div class="section-jump-links">' + links + '</div>' +
+      '<a class="dashboard-app-link" href="https://scp-study-announcements.ksariash.workers.dev/" target="_blank" rel="noopener">Announcements ↗</a>' +
     '</nav>';
 
   const floatingNav =
@@ -41,6 +42,7 @@ body[id="top"]{scroll-margin-top:0}
 .section-jump-links::-webkit-scrollbar{display:none}
 .section-jump a,.jump-menu a{color:#294f99;text-decoration:none;font-size:.7rem;font-weight:850;white-space:nowrap}
 .section-jump a{padding:6px 8px;border-radius:9px;background:#f3f6fc;border:1px solid #e3e9f4}
+.dashboard-app-link{flex:0 0 auto!important;background:#eef4ff!important;border-color:#cfdbef!important;color:#214889!important}
 .section-jump a:hover,.section-jump a:focus-visible{background:#eaf0fb;outline:none}
 .scroll-control{opacity:0;pointer-events:none;transform:translateY(8px);transition:opacity .16s ease,transform .16s ease}
 .scroll-control.visible{opacity:1;pointer-events:auto;transform:translateY(0)}
@@ -48,6 +50,8 @@ body[id="top"]{scroll-margin-top:0}
 .jump-fab{left:max(14px,env(safe-area-inset-left));padding:0 14px;border-radius:999px;font-size:.72rem}
 .back-top{right:max(14px,env(safe-area-inset-right));width:42px;border-radius:50%;display:grid;place-items:center;text-decoration:none;font-size:1.08rem;line-height:1}
 .jump-fab:hover,.jump-fab:focus-visible,.back-top:hover,.back-top:focus-visible{background:#214994;outline:none}
+.dashboard-app-link:hover,.dashboard-app-link:focus-visible{background:#e1ebfb!important}
+@media(max-width:700px){.section-jump{align-items:flex-start;flex-wrap:wrap}.section-jump-links{order:2;flex:1 1 100%}.dashboard-app-link{margin-left:auto}}
 .jump-menu{position:fixed;z-index:31;left:max(14px,env(safe-area-inset-left));bottom:calc(max(16px,env(safe-area-inset-bottom)) + 50px);width:min(230px,calc(100vw - 28px));padding:8px;background:#fff;border:1px solid #dce5f1;border-radius:14px;box-shadow:0 18px 48px rgba(15,31,69,.24)}
 .foot{padding-bottom:84px}
 .glossary-term-id{display:block;margin-top:2px;color:#8995a8;font-size:.58rem;font-weight:650}

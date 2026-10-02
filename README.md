@@ -134,3 +134,8 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 - Adds Study aid usage totals for audio, notes, and glossary opens.
 - Adds ranked Most played audio and Most opened note pages panels.
 - Detailed audio/note popularity begins with Study v58; existing glossary history remains available.
+
+
+## Release 21
+
+- Adds a direct Announcements link to the dashboard navigation so instructors can move between analytics and messaging without hunting for the app URL.
