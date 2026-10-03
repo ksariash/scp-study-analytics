@@ -139,3 +139,11 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 ## Release 21
 
 - Adds a direct Announcements link to the dashboard navigation so instructors can move between analytics and messaging without hunting for the app URL.
+
+
+## Release 22
+
+- Moves Study and Announcements into a shared top-right application switcher that remains visible as compact icon controls on mobile.
+- Makes Study-aid audio and note/PDF rows jump directly to the referenced material in Study.
+- Adds an explicit “Open in Study” link to question diagnostics.
+- Formalizes the shared SCP suite design contract and build-time markers for cross-app navigation/reference behavior.
