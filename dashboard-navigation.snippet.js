@@ -21,8 +21,20 @@ function enhanceDashboardHtml(html) {
     '<nav class="section-jump" aria-label="Dashboard sections">' +
       '<span class="section-jump-label">Jump to</span>' +
       '<div class="section-jump-links">' + links + '</div>' +
-      '<a class="dashboard-app-link" href="https://scp-study-announcements.ksariash.workers.dev/" target="_blank" rel="noopener">Announcements ↗</a>' +
     '</nav>';
+
+  const topHeader =
+    '<header class="top"><div class="topin">' +
+      '<div class="dashboard-title-block"><h1>SCP Study — Instructor Dashboard</h1></div>' +
+      '<nav class="suite-nav" aria-label="SCP applications">' +
+        '<a class="suite-nav-action" href="https://scp-study.ksariash.workers.dev/" target="_blank" rel="noopener" aria-label="Open Study" title="Study">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 6.5c3-1 5.1-.5 7.5 1v11c-2.4-1.5-4.5-2-7.5-1v-11Zm15 0c-3-1-5.1-.5-7.5 1v11c2.4-1.5 4.5-2 7.5-1v-11Z"/></svg><span>Study</span>' +
+        '</a>' +
+        '<a class="suite-nav-action" href="https://scp-study-announcements.ksariash.workers.dev/" target="_blank" rel="noopener" aria-label="Open Announcements" title="Announcements">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg><span>Announcements</span>' +
+        '</a>' +
+      '</nav>' +
+    '</div></header>';
 
   const floatingNav =
     '<button id="jumpMenuButton" class="jump-fab scroll-control" type="button" aria-expanded="false" aria-controls="jumpMenu">Sections</button>' +
@@ -42,8 +54,13 @@ body[id="top"]{scroll-margin-top:0}
 .section-jump-links::-webkit-scrollbar{display:none}
 .section-jump a,.jump-menu a{color:#294f99;text-decoration:none;font-size:.7rem;font-weight:850;white-space:nowrap}
 .section-jump a{padding:6px 8px;border-radius:9px;background:#f3f6fc;border:1px solid #e3e9f4}
-.dashboard-app-link{flex:0 0 auto!important;background:#eef4ff!important;border-color:#cfdbef!important;color:#214889!important}
 .section-jump a:hover,.section-jump a:focus-visible{background:#eaf0fb;outline:none}
+.dashboard-title-block{min-width:0}
+.topin{align-items:center!important}
+.suite-nav{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex:0 0 auto;white-space:nowrap}
+.suite-nav-action{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:40px;height:40px;padding:0 10px;border:1px solid rgba(255,255,255,.28);border-radius:10px;background:rgba(255,255,255,.08);color:#fff;text-decoration:none;font-size:.72rem;font-weight:850}
+.suite-nav-action svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
+.suite-nav-action:hover,.suite-nav-action:focus-visible{background:rgba(255,255,255,.16);outline:none;border-color:rgba(255,255,255,.46)}
 .scroll-control{opacity:0;pointer-events:none;transform:translateY(8px);transition:opacity .16s ease,transform .16s ease}
 .scroll-control.visible{opacity:1;pointer-events:auto;transform:translateY(0)}
 .jump-fab,.back-top{position:fixed;z-index:30;bottom:max(16px,env(safe-area-inset-bottom));height:42px;border:1px solid rgba(255,255,255,.36);background:#173771;color:#fff;box-shadow:0 10px 28px rgba(15,37,82,.22);font-weight:850;cursor:pointer}
@@ -51,7 +68,16 @@ body[id="top"]{scroll-margin-top:0}
 .back-top{right:max(14px,env(safe-area-inset-right));width:42px;border-radius:50%;display:grid;place-items:center;text-decoration:none;font-size:1.08rem;line-height:1}
 .jump-fab:hover,.jump-fab:focus-visible,.back-top:hover,.back-top:focus-visible{background:#214994;outline:none}
 .dashboard-app-link:hover,.dashboard-app-link:focus-visible{background:#e1ebfb!important}
-@media(max-width:700px){.section-jump{align-items:flex-start;flex-wrap:wrap}.section-jump-links{order:2;flex:1 1 100%}.dashboard-app-link{margin-left:auto}}
+@media(max-width:700px){.section-jump{align-items:flex-start;flex-wrap:wrap}.section-jump-links{order:2;flex:1 1 100%}}
+@media(max-width:650px){
+  .topin{flex-direction:row!important;align-items:flex-start!important;gap:10px!important}
+  .dashboard-title-block{flex:1 1 auto}
+  .top h1{font-size:1.2rem;line-height:1.18;overflow-wrap:anywhere}
+  .suite-nav{margin-left:auto;gap:5px}
+  .suite-nav-action{width:38px;min-width:38px;height:38px;padding:0;border-radius:10px}
+  .suite-nav-action span{display:none}
+  .suite-nav-action svg{width:18px;height:18px}
+}
 .jump-menu{position:fixed;z-index:31;left:max(14px,env(safe-area-inset-left));bottom:calc(max(16px,env(safe-area-inset-bottom)) + 50px);width:min(230px,calc(100vw - 28px));padding:8px;background:#fff;border:1px solid #dce5f1;border-radius:14px;box-shadow:0 18px 48px rgba(15,31,69,.24)}
 .foot{padding-bottom:84px}
 .glossary-term-id{display:block;margin-top:2px;color:#8995a8;font-size:.58rem;font-weight:650}
@@ -70,6 +96,12 @@ body[id="top"]{scroll-margin-top:0}
 .resource-panel h3{margin:0 0 3px;font-size:.84rem}.resource-panel-sub{display:block;margin-bottom:9px;color:var(--muted);font-size:.64rem}
 .resource-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:8px 0;border-bottom:1px solid #edf1f6}.resource-row:last-child{border-bottom:0}
 .resource-row strong{display:block;font-size:.73rem;line-height:1.35}.resource-row small{display:block;margin-top:2px;color:#7a8799;font-size:.6rem}.resource-row b{color:#3156a3;font-size:.72rem;text-align:right}
+.resource-reference{display:block;min-width:0;color:inherit;text-decoration:none;border-radius:8px}
+.resource-reference:hover strong,.resource-reference:focus-visible strong{color:#274f9d;text-decoration:underline}.resource-reference:focus-visible{outline:2px solid rgba(49,86,163,.28);outline-offset:2px}
+.question-study-reference{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;min-height:34px;padding:6px 9px;border:1px solid #d5dfed;border-radius:9px;background:#f6f9fd;color:#274f96;text-decoration:none;font-size:.67rem;font-weight:850}
+.question-study-reference:hover,.question-study-reference:focus-visible{background:#edf3fc;outline:none}
+.question-study-reference svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+@media(max-width:650px){.question-study-reference span{display:none}.question-study-reference{width:34px;padding:0;justify-content:center}}
 @media(max-width:700px){.resource-usage-overview{grid-template-columns:1fr}.resource-grid{grid-template-columns:1fr}}
 .feedback-controls{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
 .feedback-controls select,.feedback-controls input[type="search"]{min-height:34px;padding:6px 8px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);font:inherit;font-size:.68rem;font-weight:750}
@@ -472,12 +504,54 @@ body[id="top"]{scroll-margin-top:0}
   let busy=false;
   function params(){const p=new URLSearchParams();['cohort','chaburaRegion','chabura','category','mode','country','region','city','from','to'].forEach(id=>{const el=document.getElementById(id);if(el?.value)p.set(id==='cohort'?'zman':id,el.value)});return p}
   function card(value,label,learners){return '<div class="resource-usage-card"><b>'+Number(value||0)+'</b><span>'+esc(label)+' · '+Number(learners||0)+' learner'+(Number(learners)===1?'':'s')+'</span></div>'}
-  function rows(items,empty,noun){if(!items?.length)return '<div class="feedback-empty">'+esc(empty)+'</div>';return items.slice(0,12).map(item=>'<div class="resource-row"><div><strong>'+esc(item.label||item.id)+'</strong><small>'+Number(item.learners||0)+' learner'+(Number(item.learners)===1?'':'s')+(item.page?' · page '+Number(item.page):'')+'</small></div><b>'+Number(item.uses||0)+' '+noun+(Number(item.uses)===1?'':'s')+'</b></div>').join('')}
-  async function load(){if(busy)return;busy=true;try{const r=await fetch('/api/resource-summary?'+params().toString(),{cache:'no-store'});const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not load study-aid usage');overview.innerHTML=card(d.totals?.audio?.uses,'Audio plays',d.totals?.audio?.learners)+card(d.totals?.notes?.uses,'Notes opens',d.totals?.notes?.learners)+card(d.totals?.glossary?.uses,'Glossary opens',d.totals?.glossary?.learners);audioEl.innerHTML=rows(d.audio,'No detailed audio plays recorded yet.','play');notesEl.innerHTML=rows(d.notes,'No detailed note-page opens recorded yet.','open');if(noteEl)noteEl.textContent=d.note||''}catch(error){const msg='<div class="feedback-empty">'+esc(error.message)+'</div>';overview.innerHTML=msg;audioEl.innerHTML=msg;notesEl.innerHTML=msg}finally{busy=false}}
+  function studyReference(params){const url=new URL('https://scp-study.ksariash.workers.dev/');const zman=document.getElementById('cohort')?.value;if(zman)url.searchParams.set('zman',zman);Object.entries(params||{}).forEach(([key,value])=>{if(value!==null&&value!==undefined&&value!=='')url.searchParams.set(key,String(value))});return url.href}
+  function resourceHref(item,type){if(type==='audio'){const id=String(item?.id||'');return /^\d+$/.test(id)?studyReference({audio:id}):''}const variant=String(item?.variant||String(item?.id||'').split(':')[0]||'').toLowerCase();const page=Number(item?.page)||Number(String(item?.id||'').match(/:p(\d+)/)?.[1])||0;return ['compact','full'].includes(variant)&&page>0?studyReference({pdf:variant,page}):''}
+  function rows(items,empty,noun,type){if(!items?.length)return '<div class="feedback-empty">'+esc(empty)+'</div>';return items.slice(0,12).map(item=>{const href=resourceHref(item,type);const copy='<div><strong>'+esc(item.label||item.id)+'</strong><small>'+Number(item.learners||0)+' learner'+(Number(item.learners)===1?'':'s')+(item.page?' · page '+Number(item.page):'')+'</small></div>';return '<div class="resource-row">'+(href?'<a class="resource-reference" href="'+esc(href)+'" target="_blank" rel="noopener" title="Open in Study">'+copy+'</a>':copy)+'<b>'+Number(item.uses||0)+' '+noun+(Number(item.uses)===1?'':'s')+'</b></div>'}).join('')}
+  async function load(){if(busy)return;busy=true;try{const r=await fetch('/api/resource-summary?'+params().toString(),{cache:'no-store'});const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not load study-aid usage');overview.innerHTML=card(d.totals?.audio?.uses,'Audio plays',d.totals?.audio?.learners)+card(d.totals?.notes?.uses,'Notes opens',d.totals?.notes?.learners)+card(d.totals?.glossary?.uses,'Glossary opens',d.totals?.glossary?.learners);audioEl.innerHTML=rows(d.audio,'No detailed audio plays recorded yet.','play','audio');notesEl.innerHTML=rows(d.notes,'No detailed note-page opens recorded yet.','open','notes');if(noteEl)noteEl.textContent=d.note||''}catch(error){const msg='<div class="feedback-empty">'+esc(error.message)+'</div>';overview.innerHTML=msg;audioEl.innerHTML=msg;notesEl.innerHTML=msg}finally{busy=false}}
   ['chaburaRegion','chabura','cohort','category','mode','country','region','city','from','to'].forEach(id=>document.getElementById(id)?.addEventListener('change',()=>setTimeout(load,0)));
   document.getElementById('clearFilters')?.addEventListener('click',()=>setTimeout(load,0));
   document.getElementById('refreshData')?.addEventListener('click',()=>setTimeout(load,0));
   load();
+})();
+</script>`;
+
+  const referenceBehavior = `
+<script id="dashboardReferenceLinksScript">
+(() => {
+  const studyQuestionUrl = qid => {
+    const url = new URL('https://scp-study.ksariash.workers.dev/');
+    const zman = document.getElementById('cohort')?.value;
+    if (zman) url.searchParams.set('zman', zman);
+    url.searchParams.set('question', String(qid));
+    return url.href;
+  };
+
+  function attachQuestionLink(qid) {
+    const dialog = document.getElementById('questionDialog');
+    const head = dialog?.querySelector('.modal-head');
+    const close = document.getElementById('closeQuestionDialog');
+    if (!dialog?.open || !head || !close) return;
+    let link = document.getElementById('questionStudyReference');
+    if (!link) {
+      link = document.createElement('a');
+      link.id = 'questionStudyReference';
+      link.className = 'question-study-reference';
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 6.5c3-1 5.1-.5 7.5 1v11c-2.4-1.5-4.5-2-7.5-1v-11Zm15 0c-3-1-5.1-.5-7.5 1v11c2.4-1.5 4.5-2 7.5-1v-11Z"/></svg><span>Open in Study</span>';
+      head.insertBefore(link, close);
+    }
+    link.href = studyQuestionUrl(qid);
+    link.setAttribute('aria-label', 'Open question ' + qid + ' in Study');
+    link.title = 'Open question ' + qid + ' in Study';
+  }
+
+  document.addEventListener('click', event => {
+    const target = event.target.closest?.('[data-qid]');
+    if (!target) return;
+    const qid = target.dataset.qid;
+    window.setTimeout(() => attachQuestionLink(qid), 0);
+  });
 })();
 </script>`;
 
@@ -502,6 +576,7 @@ body[id="top"]{scroll-margin-top:0}
 
   return html
     .replace('<body>', '<body id="top">')
+    .replace('<header class="top"><div class="topin"><div><h1>SCP Study — Instructor Dashboard</h1></div><a class="study-link" href="https://scp-study.ksariash.workers.dev/" target="_blank" rel="noopener">Open SCP Study ↗</a></div></header>', topHeader)
     .replace(originalFilters, reorderedFilters)
     .replace("const filters=['cohort','country','region','city','category','mode','from','to'];", "const filters=['cohort','chaburaRegion','chabura','category','mode','country','region','city','from','to'];")
     .replace("function query(){const q=new URLSearchParams();filters.forEach(id=>{const v=$(id).value;if(v)q.set(id,v)});return q.toString()}", "function cascadeChabura(){if(!options)return;const location=$('chaburaRegion').value,rav=$('chabura').value;const profiles=options.chaburaProfiles||[];const ravs=[...new Set(profiles.filter(x=>!location||x.location===location).map(x=>x.rav).filter(Boolean))].sort();fillSelect('chabura',ravs);if(rav&&ravs.includes(rav))$('chabura').value=rav};function query(){const q=new URLSearchParams();filters.forEach(id=>{const v=$(id).value;if(v)q.set(id==='cohort'?'zman':id,v)});return q.toString()}")
@@ -519,7 +594,7 @@ body[id="top"]{scroll-margin-top:0}
     .replace('<h2>Activity over time</h2>', '<h2 id="activity-over-time">Activity over time</h2>')
     .replace('<section class="overview" id="overview"></section>', inlineNav + '<section class="overview" id="overview"></section>')
     .replace('</head>', styles + '</head>')
-    .replace('</body>', floatingNav + behavior + feedbackBehavior + resourceBehavior + essayBehavior + announcementBehavior + '</body>');
+    .replace('</body>', floatingNav + behavior + feedbackBehavior + resourceBehavior + essayBehavior + referenceBehavior + announcementBehavior + '</body>');
 }
 
 export const DASHBOARD_HTML = enhanceDashboardHtml(__DASHBOARD_BASE_HTML);
