@@ -130,6 +130,8 @@ Activity over time has two independent presentation rules. Peak study times defa
 
 Keep the core dashboard summary bounded. Do not materialize the full raw `events` history in Worker memory as part of `/api/summary` when SQL can aggregate the requested panel. Expensive optional views such as timezone-normalized peak study times should load independently after the core dashboard and must apply the trailing-90-day bound in SQL by default; scan all dates only after an explicit user request.
 
+When one dashboard request needs many independent read-only D1 statements, prefer `DB.batch()` over separate Worker-to-D1 calls when the statements can share one transactional batch. Preserve result ordering explicitly and re-check production latency after the change; batching reduces round trips but executes its statements sequentially.
+
 
 ## Dashboard enhancement invariant
 
