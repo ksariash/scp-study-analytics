@@ -147,3 +147,11 @@ See `README_DEPLOY.txt` and `PRIVACY_AND_METRICS.txt` for operational and privac
 - Makes Study-aid audio and note/PDF rows jump directly to the referenced material in Study.
 - Adds an explicit “Open in Study” link to question diagnostics.
 - Formalizes the shared SCP suite design contract and build-time markers for cross-app navigation/reference behavior.
+
+
+## Release 23
+
+- Adds opt-in anonymous learner sync with independently revocable linked-device credentials and idempotent Zman-scoped progress operations.
+- Shares notification read/archive state across linked devices while retaining per-device PushSubscriptions and reminder delivery.
+- Adds per-Zman reset generations so stale offline devices cannot restore progress that was intentionally reset.
+- Requires a live linked-device credential for shared inbox/push/reminder mutations and anonymous server deletion after sync is enabled.

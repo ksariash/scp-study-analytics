@@ -301,7 +301,31 @@ CREATE TABLE IF NOT EXISTS push_config (
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   endpoint TEXT PRIMARY KEY, installation_id TEXT NOT NULL, zman TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
   timezone TEXT NOT NULL, reminder_enabled INTEGER NOT NULL DEFAULT 0, reminder_time TEXT, israel_calendar INTEGER NOT NULL DEFAULT 0,
-  last_reminder_local_date TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  last_reminder_local_date TEXT, latitude_rounded REAL, longitude_rounded REAL, device_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_push_installation ON push_subscriptions(installation_id, zman);
 CREATE INDEX IF NOT EXISTS idx_push_reminders ON push_subscriptions(reminder_enabled, reminder_time);
+
+CREATE TABLE IF NOT EXISTS sync_accounts (
+  learner_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sync_devices (
+  device_id TEXT PRIMARY KEY, learner_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+  created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sync_devices_learner ON sync_devices(learner_id, revoked_at);
+CREATE TABLE IF NOT EXISTS sync_pair_codes (
+  code_hash TEXT PRIMARY KEY, learner_id TEXT NOT NULL, created_by_device_id TEXT NOT NULL,
+  expires_at TEXT NOT NULL, used_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sync_pair_expiry ON sync_pair_codes(expires_at, used_at);
+CREATE TABLE IF NOT EXISTS sync_zman_generations (
+  learner_id TEXT NOT NULL, zman TEXT NOT NULL, generation INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL,
+  PRIMARY KEY(learner_id, zman)
+);
+CREATE TABLE IF NOT EXISTS sync_ops (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT, learner_id TEXT NOT NULL, zman TEXT NOT NULL, generation INTEGER NOT NULL,
+  op_id TEXT NOT NULL, device_id TEXT NOT NULL, kind TEXT NOT NULL, payload_json TEXT NOT NULL,
+  client_ts TEXT, created_at TEXT NOT NULL, UNIQUE(learner_id, op_id)
+);
+CREATE INDEX IF NOT EXISTS idx_sync_ops_learner_seq ON sync_ops(learner_id, seq);

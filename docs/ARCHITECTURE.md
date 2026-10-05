@@ -24,7 +24,7 @@ Do not register a second live Zman until each Zman has its own question/essay/fa
 
 ## Learner profile isolation
 
-The public anonymous installation ID is stable across Zmanim. The `learner_profiles` table has a legacy single-column primary key, so runtime storage uses an internal `zman::installationId` key. Event backfills use the original installation ID plus Zman.
+The public anonymous ID is stable across Zmanim. Its historical API/database name is `installationId` / `installation_id`; for a sync-enabled user it is the anonymous learner ID shared by linked devices. Unsynced users continue to have one anonymous learner ID per installation. The `learner_profiles` table has a legacy single-column primary key, so runtime storage uses an internal `zman::installationId` key. Event backfills use the original anonymous learner ID plus Zman.
 
 This prevents changing a chabura in one Zman from rewriting another Zman's historical events.
 
@@ -50,6 +50,14 @@ Question/topic/essay diagnostics must not aggregate across Zmanim. If a future h
 
 ## Push and inbox state
 
-`app_notifications` is the canonical current-Zman inbox. `notification_state` stores per-installation read/archive state. `push_subscriptions` stores browser subscriptions and reminder preferences; `push_config` stores a server-only VAPID keypair generated on first use. Push is a delivery channel for inbox objects.
+`app_notifications` is the canonical current-Zman inbox. `notification_state` stores read/archive state against the anonymous learner ID, so linked devices share inbox state. `push_subscriptions` stores browser subscriptions and reminder preferences and includes `device_id` so one linked device can be revoked without removing another device's endpoint; `push_config` stores a server-only VAPID keypair generated on first use. Push is a delivery channel for inbox objects.
+
+## Device sync
+
+`sync_accounts` promotes the existing anonymous learner ID into the shared sync subject without making it a secret. `sync_devices` stores one independently revocable device credential per browser/PWA and only stores the credential hash. `sync_pair_codes` contains short-lived single-use linking capabilities.
+
+`sync_ops` is an append-only idempotent Zman-scoped progress log. The server assigns a sequence cursor and rejects stale operations after a reset by comparing them with `sync_zman_generations`. The Study client keeps local-first state and folds remote operations; it does not upload a whole localStorage blob as last-write-wins state.
+
+Once a sync account exists, inbox state, push-subscription mutation, reminder-status lookup, and anonymous server deletion for that learner require a valid linked-device credential. This is what makes device revocation meaningful even though the shared anonymous learner ID appears in normal analytics payloads and is not secret.
 
 Daily reminders are evaluated by cron in the subscriber's IANA timezone. Saturday and Hebcal `CHAG` dates are suppressed; users choose Diaspora or Israel holiday rules. Notification `kind` and `action_json` are intentionally extensible.

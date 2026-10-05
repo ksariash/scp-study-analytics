@@ -40,6 +40,8 @@ Learner profile backfills must always include both anonymous installation ID and
 
 Student analytics are anonymous. Never expose anonymous installation IDs, raw network metadata, or individual comments unnecessarily in public output.
 
+For sync-enabled learners, the historical `installation_id` value is a shared anonymous learner ID across linked devices. It remains an identifier, not an authentication secret. `sync_devices` supplies a separate random `device_id` and hashed high-entropy device credential for authorization and revocation. Unsynced learners keep the legacy one-installation/one-ID behavior.
+
 Announcements and issue-resolution notices live in D1 `app_notifications`. The Study app reads them from `/api/notifications`, so announcements do not require a Study release.
 
 Manual announcement creation uses `POST /api/admin/notifications` and the Cloudflare secret `NOTIFICATION_ADMIN_TOKEN`. Never commit that token, echo it in logs, or put it in browser source. The dashboard does not persist the supplied token. The operator enters a token that matches the Cloudflare secret for the send request; never add browser persistence for it.
@@ -49,6 +51,18 @@ Resolving a feedback issue creates a targeted notification for anonymous install
 ## Database changes
 
 Database migrations are within normal implementation authority. Prefer idempotent migrations that preserve existing data. Keep `schema.sql` accurate for a fresh database, but do not treat `npm run db:init` as a production migration command.
+
+### D1 initialization invariant
+
+Every request path must be safe when it is the first path exercised in a fresh Worker isolate against either an empty database or a partially migrated legacy database. A handler must call the appropriate idempotent `ensure*Tables()`/runtime migration before its first query, insert, update, or delete against those tables or newly added columns. Never rely on a different endpoint, cron task, admin action, deployment order, or a previous request to initialize shared D1 state.
+
+When a change adds a table/column or makes an existing route touch a table it did not previously touch:
+- update both the runtime `ensure*Tables()` migration and `schema.sql`;
+- make every affected entry point invoke that ensure function itself (shared helpers are fine);
+- test the affected route as the **first request** against a clean local D1 database;
+- also consider the production upgrade case where older tables exist but the new table/column does not.
+
+A normal happy-path test against a warmed local database is insufficient for a D1-affecting release. The clean-database first-request check is part of the required validation.
 
 Before destructive transformations or table rebuilds, take a recoverable backup/export when tooling permits. Never silently reinterpret existing Zman/content identity.
 
@@ -74,6 +88,10 @@ Daily reminders use the device IANA timezone and chosen HH:MM. Suppress the enti
 Notification `kind` and `action_json` are extensible. Unknown kinds must still render safely; unknown actions must be ignored.
 
 Feedback reports may contain multiple tags. Supported UI vocabulary: Inaccurate, Incomplete, Confusing, Typo, Wrong audio, Wrong notes, Other.
+
+Linked devices intentionally share notification read/archive state through their anonymous learner ID. Push endpoints and reminder delivery remain device-specific. `push_subscriptions.device_id` is the revocation boundary; never remove all of a learner's endpoints when only one device is being unlinked.
+
+Sync progress uses idempotent Zman-scoped operations with per-Zman reset generations. Never accept the anonymous learner/installation ID itself as authorization for sync reads or writes. Once a sync account exists, inbox/push/reminder mutations and anonymous server deletion for that learner also require a live linked-device credential.
 
 
 ## Reminder boundary correctness

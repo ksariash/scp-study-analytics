@@ -7,6 +7,7 @@ const LEGACY_FEEDBACK_REASON_MAP = new Map([['wording','typo']]);
 const FEEDBACK_STATUSES = new Set(['new', 'tracking', 'resolved', 'reopened']);
 let feedbackTablesReady = false;
 let notificationTablesReady = false;
+let syncTablesReady = false;
 
 function feedbackStorageId(zman, contentId) { return `${zman}::${contentId}`; }
 function feedbackPublicId(contentId) {
@@ -532,9 +533,9 @@ async function ensureNotificationTables(env) {
     endpoint TEXT PRIMARY KEY, installation_id TEXT NOT NULL, zman TEXT NOT NULL, p256dh TEXT NOT NULL,
     auth TEXT NOT NULL, timezone TEXT NOT NULL, reminder_enabled INTEGER NOT NULL DEFAULT 0,
     reminder_time TEXT, israel_calendar INTEGER NOT NULL DEFAULT 0, last_reminder_local_date TEXT,
-    latitude_rounded REAL, longitude_rounded REAL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    latitude_rounded REAL, longitude_rounded REAL, device_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   )`).run();
-  for (const [column, type] of [['latitude_rounded','REAL'],['longitude_rounded','REAL']]) {
+  for (const [column, type] of [['latitude_rounded','REAL'],['longitude_rounded','REAL'],['device_id','TEXT']]) {
     try { await env.DB.prepare(`ALTER TABLE push_subscriptions ADD COLUMN ${column} ${type}`).run(); }
     catch (error) { if (!/duplicate column/i.test(String(error?.message || error))) throw error; }
   }
@@ -548,7 +549,174 @@ async function ensureNotificationTables(env) {
 function notificationCors(request, env, methods='GET, POST, DELETE, OPTIONS') {
   const origin=request.headers.get('Origin'),allowed=text(env.ALLOWED_ORIGIN,300);
   if(!origin||!allowed||origin!==allowed)return null;
-  return {'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Methods':methods,'Access-Control-Allow-Headers':'Content-Type','Access-Control-Max-Age':'86400','Vary':'Origin'};
+  return {'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Methods':methods,'Access-Control-Allow-Headers':'Content-Type, Authorization','Access-Control-Max-Age':'86400','Vary':'Origin'};
+}
+
+const SYNC_OP_KINDS = new Set([
+  'question_baseline','question_shown','question_answer','test_complete',
+  'essay_fact_baseline','essay_fact','essay_round_baseline','essay_round',
+  'chabura','category_filters','essay_filters','audio_state','reset'
+]);
+async function syncHash(value){
+  const bytes=new TextEncoder().encode(String(value||'')),digest=await crypto.subtle.digest('SHA-256',bytes);
+  return [...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,'0')).join('');
+}
+function syncRandomToken(bytes=32){
+  const data=crypto.getRandomValues(new Uint8Array(bytes));
+  let raw='';for(const byte of data)raw+=String.fromCharCode(byte);
+  return btoa(raw).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function syncPairCode(){
+  const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',data=crypto.getRandomValues(new Uint8Array(16));
+  let code='';for(let i=0;i<16;i++)code+=alphabet[data[i]%alphabet.length];
+  return code.match(/.{1,4}/g).join('-');
+}
+function normalizePairCode(value){return String(value||'').toUpperCase().replace(/[^A-Z2-9]/g,'');}
+function syncDeviceName(value){return text(value,80)||'Linked device';}
+async function ensureSyncTables(env){
+  if(syncTablesReady)return;
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS sync_accounts (
+    learner_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  )`).run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS sync_devices (
+    device_id TEXT PRIMARY KEY, learner_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+    created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, revoked_at TEXT
+  )`).run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS sync_pair_codes (
+    code_hash TEXT PRIMARY KEY, learner_id TEXT NOT NULL, created_by_device_id TEXT NOT NULL,
+    expires_at TEXT NOT NULL, used_at TEXT
+  )`).run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS sync_zman_generations (
+    learner_id TEXT NOT NULL, zman TEXT NOT NULL, generation INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL,
+    PRIMARY KEY(learner_id,zman)
+  )`).run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS sync_ops (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT, learner_id TEXT NOT NULL, zman TEXT NOT NULL, generation INTEGER NOT NULL,
+    op_id TEXT NOT NULL, device_id TEXT NOT NULL, kind TEXT NOT NULL, payload_json TEXT NOT NULL,
+    client_ts TEXT, created_at TEXT NOT NULL, UNIQUE(learner_id,op_id)
+  )`).run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_sync_devices_learner ON sync_devices(learner_id,revoked_at)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_sync_ops_learner_seq ON sync_ops(learner_id,seq)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_sync_pair_expiry ON sync_pair_codes(expires_at,used_at)').run();
+  syncTablesReady=true;
+}
+async function syncAuth(request,env){
+  await ensureSyncTables(env);
+  const auth=request.headers.get('Authorization')||'';
+  if(!auth.startsWith('Bearer '))return null;
+  const token=auth.slice(7).trim();if(token.length<32)return null;
+  const tokenHash=await syncHash(token),now=new Date().toISOString();
+  const device=await env.DB.prepare('SELECT device_id,learner_id,name FROM sync_devices WHERE token_hash=? AND revoked_at IS NULL').bind(tokenHash).first();
+  if(!device)return null;
+  env.DB.prepare('UPDATE sync_devices SET last_seen_at=? WHERE device_id=?').bind(now,device.device_id).run().catch(()=>{});
+  return{deviceId:String(device.device_id),learnerId:String(device.learner_id),name:String(device.name||'Linked device')};
+}
+async function syncAuthorizeLearner(request,env,learnerId){
+  await ensureSyncTables(env);
+  const account=await env.DB.prepare('SELECT learner_id FROM sync_accounts WHERE learner_id=?').bind(learnerId).first();
+  if(!account)return{ok:true,sync:false,auth:null};
+  const auth=await syncAuth(request,env);
+  return auth&&auth.learnerId===learnerId?{ok:true,sync:true,auth}:{ok:false,sync:true,auth:null};
+}
+async function syncIssueDevice(env,learnerId,deviceId,name){
+  const token=syncRandomToken(32),tokenHash=await syncHash(token),now=new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO sync_devices(device_id,learner_id,token_hash,name,created_at,last_seen_at,revoked_at)
+    VALUES(?,?,?,?,?,?,NULL) ON CONFLICT(device_id) DO UPDATE SET learner_id=excluded.learner_id,token_hash=excluded.token_hash,name=excluded.name,last_seen_at=excluded.last_seen_at,revoked_at=NULL`)
+    .bind(deviceId,learnerId,tokenHash,syncDeviceName(name),now,now).run();
+  return token;
+}
+async function syncCreateAccount(request,env){
+  const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});
+  await ensureSyncTables(env);let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400,headers:cors})}
+  const learnerId=text(body?.learnerId,100),deviceId=text(body?.deviceId,100),name=syncDeviceName(body?.deviceName);
+  if(!learnerId||!deviceId)return jsonResponse({error:'Learner and device IDs are required'},{status:400,headers:cors});
+  const existing=await env.DB.prepare('SELECT learner_id FROM sync_accounts WHERE learner_id=?').bind(learnerId).first();
+  if(existing)return jsonResponse({error:'Sync is already enabled for this anonymous learner. Link this device from an existing device.'},{status:409,headers:cors});
+  const now=new Date().toISOString();
+  await env.DB.prepare('INSERT INTO sync_accounts(learner_id,created_at,updated_at) VALUES(?,?,?)').bind(learnerId,now,now).run();
+  const token=await syncIssueDevice(env,learnerId,deviceId,name);
+  return jsonResponse({ok:true,learnerId,deviceId,deviceToken:token},{headers:cors});
+}
+async function syncPairStart(request,env){
+  const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});
+  const auth=await syncAuth(request,env);if(!auth)return jsonResponse({error:'Sync authentication required'},{status:401,headers:cors});
+  const code=syncPairCode(),codeHash=await syncHash(normalizePairCode(code)),now=new Date(),expires=new Date(now.getTime()+10*60*1000).toISOString();
+  await env.DB.prepare('DELETE FROM sync_pair_codes WHERE created_by_device_id=? OR expires_at<?').bind(auth.deviceId,now.toISOString()).run();
+  await env.DB.prepare('INSERT INTO sync_pair_codes(code_hash,learner_id,created_by_device_id,expires_at,used_at) VALUES(?,?,?,?,NULL)').bind(codeHash,auth.learnerId,auth.deviceId,expires).run();
+  return jsonResponse({ok:true,code,expiresAt:expires},{headers:cors});
+}
+async function syncPairFinish(request,env){
+  const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});
+  await ensureSyncTables(env);let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400,headers:cors})}
+  const normalized=normalizePairCode(body?.code),deviceId=text(body?.deviceId,100),name=syncDeviceName(body?.deviceName);
+  if(normalized.length!==16||!deviceId)return jsonResponse({error:'Invalid link code'},{status:400,headers:cors});
+  const codeHash=await syncHash(normalized),now=new Date().toISOString(),row=await env.DB.prepare('SELECT learner_id,expires_at,used_at FROM sync_pair_codes WHERE code_hash=?').bind(codeHash).first();
+  if(!row||row.used_at||row.expires_at<=now)return jsonResponse({error:'That link code is invalid or expired.'},{status:400,headers:cors});
+  const claimed=await env.DB.prepare('UPDATE sync_pair_codes SET used_at=? WHERE code_hash=? AND used_at IS NULL AND expires_at>?').bind(now,codeHash,now).run();
+  if(Number(claimed?.meta?.changes||0)!==1)return jsonResponse({error:'That link code is invalid or expired.'},{status:400,headers:cors});
+  const token=await syncIssueDevice(env,String(row.learner_id),deviceId,name);
+  return jsonResponse({ok:true,learnerId:String(row.learner_id),deviceId,deviceToken:token},{headers:cors});
+}
+async function syncDevices(request,env){
+  const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});
+  const auth=await syncAuth(request,env);if(!auth)return jsonResponse({error:'Sync authentication required'},{status:401,headers:cors});
+  const rows=resultsOf(await env.DB.prepare('SELECT device_id,name,created_at,last_seen_at FROM sync_devices WHERE learner_id=? AND revoked_at IS NULL ORDER BY last_seen_at DESC').bind(auth.learnerId).all());
+  return jsonResponse({ok:true,learnerId:auth.learnerId,currentDeviceId:auth.deviceId,devices:rows.map(row=>({deviceId:row.device_id,name:row.name,createdAt:row.created_at,lastSeenAt:row.last_seen_at,current:row.device_id===auth.deviceId}))},{headers:cors});
+}
+async function syncRevokeDevice(request,env,othersOnly=false){
+  const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});
+  const auth=await syncAuth(request,env);if(!auth)return jsonResponse({error:'Sync authentication required'},{status:401,headers:cors});
+  await ensureNotificationTables(env);
+  let target='';if(!othersOnly){let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400,headers:cors})}target=text(body?.deviceId,100);if(!target)return jsonResponse({error:'Device ID required'},{status:400,headers:cors});if(target===auth.deviceId)return jsonResponse({error:'Use Unlink this device for the current device.'},{status:400,headers:cors});}
+  const now=new Date().toISOString();
+  if(othersOnly){
+    const rows=resultsOf(await env.DB.prepare('SELECT device_id FROM sync_devices WHERE learner_id=? AND device_id<>? AND revoked_at IS NULL').bind(auth.learnerId,auth.deviceId).all()),ids=rows.map(row=>String(row.device_id));
+    await env.DB.prepare('UPDATE sync_devices SET revoked_at=? WHERE learner_id=? AND device_id<>? AND revoked_at IS NULL').bind(now,auth.learnerId,auth.deviceId).run();
+    if(ids.length)await env.DB.prepare(`DELETE FROM push_subscriptions WHERE installation_id=? AND device_id IN (${ids.map(()=>'?').join(',')})`).bind(auth.learnerId,...ids).run();
+    return jsonResponse({ok:true,revoked:ids.length},{headers:cors});
+  }
+  const row=await env.DB.prepare('SELECT device_id FROM sync_devices WHERE learner_id=? AND device_id=? AND revoked_at IS NULL').bind(auth.learnerId,target).first();
+  if(!row)return jsonResponse({error:'Device not found'},{status:404,headers:cors});
+  await env.DB.batch([env.DB.prepare('UPDATE sync_devices SET revoked_at=? WHERE learner_id=? AND device_id=?').bind(now,auth.learnerId,target),env.DB.prepare('DELETE FROM push_subscriptions WHERE installation_id=? AND device_id=?').bind(auth.learnerId,target)]);
+  return jsonResponse({ok:true,revoked:1},{headers:cors});
+}
+async function syncUnlinkCurrent(request,env){
+  const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});
+  const auth=await syncAuth(request,env);if(!auth)return jsonResponse({error:'Sync authentication required'},{status:401,headers:cors});
+  await ensureNotificationTables(env);
+  const now=new Date().toISOString();
+  await env.DB.batch([env.DB.prepare('UPDATE sync_devices SET revoked_at=? WHERE learner_id=? AND device_id=?').bind(now,auth.learnerId,auth.deviceId),env.DB.prepare('DELETE FROM push_subscriptions WHERE installation_id=? AND device_id=?').bind(auth.learnerId,auth.deviceId)]);
+  return jsonResponse({ok:true},{headers:cors});
+}
+async function syncGetOps(request,env){
+  const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});
+  const auth=await syncAuth(request,env);if(!auth)return jsonResponse({error:'Sync authentication required'},{status:401,headers:cors});
+  const url=new URL(request.url),cursor=Math.max(0,Number(url.searchParams.get('cursor'))||0),rows=resultsOf(await env.DB.prepare('SELECT seq,zman,generation,op_id,device_id,kind,payload_json,client_ts,created_at FROM sync_ops WHERE learner_id=? AND seq>? ORDER BY seq LIMIT 500').bind(auth.learnerId,cursor).all());
+  const generations=resultsOf(await env.DB.prepare('SELECT zman,generation FROM sync_zman_generations WHERE learner_id=?').bind(auth.learnerId).all());
+  const ops=rows.map(row=>({seq:Number(row.seq),zman:row.zman,generation:Number(row.generation)||0,opId:row.op_id,deviceId:row.device_id,kind:row.kind,payload:JSON.parse(row.payload_json||'{}'),clientTs:row.client_ts,createdAt:row.created_at}));
+  return jsonResponse({ok:true,cursor:ops.length?ops[ops.length-1].seq:cursor,hasMore:ops.length===500,generations:Object.fromEntries(generations.map(row=>[row.zman,Number(row.generation)||0])),ops},{headers:cors});
+}
+async function syncPostOps(request,env){
+  const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});
+  const auth=await syncAuth(request,env);if(!auth)return jsonResponse({error:'Sync authentication required'},{status:401,headers:cors});
+  let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400,headers:cors})}
+  const ops=Array.isArray(body?.ops)?body.ops.slice(0,500):[];if(!ops.length)return jsonResponse({ok:true,accepted:0,stale:0},{headers:cors});
+  let accepted=0,stale=0;const now=new Date().toISOString(),generationCache=new Map();
+  for(const raw of ops){
+    const zman=normalizeZman(raw?.zman||CURRENT_ZMAN),opId=text(raw?.opId,120),kind=text(raw?.kind,40),payload=raw?.payload&&typeof raw.payload==='object'&&!Array.isArray(raw.payload)?raw.payload:{},clientTs=text(raw?.clientTs,80)||null;
+    if(!SUPPORTED_ZMANIM.has(zman)||!opId||!SYNC_OP_KINDS.has(kind))continue;
+    let current=generationCache.get(zman);if(current===undefined){const row=await env.DB.prepare('SELECT generation FROM sync_zman_generations WHERE learner_id=? AND zman=?').bind(auth.learnerId,zman).first();current=Number(row?.generation)||0;generationCache.set(zman,current);}
+    const incoming=Math.max(0,Number(raw?.generation)||0);
+    if(kind==='reset'){
+      if(incoming<current){stale++;continue;}
+      current+=1;generationCache.set(zman,current);
+      await env.DB.prepare('INSERT INTO sync_zman_generations(learner_id,zman,generation,updated_at) VALUES(?,?,?,?) ON CONFLICT(learner_id,zman) DO UPDATE SET generation=excluded.generation,updated_at=excluded.updated_at').bind(auth.learnerId,zman,current,now).run();
+    }else if(incoming!==current){stale++;continue;}
+    const encoded=JSON.stringify(payload);if(encoded.length>20000)continue;
+    const result=await env.DB.prepare('INSERT OR IGNORE INTO sync_ops(learner_id,zman,generation,op_id,device_id,kind,payload_json,client_ts,created_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(auth.learnerId,zman,current,opId,auth.deviceId,kind,encoded,clientTs,now).run();
+    accepted+=Number(result?.meta?.changes||0);
+  }
+  return jsonResponse({ok:true,accepted,stale,generations:Object.fromEntries(generationCache)},{headers:cors});
 }
 async function vapidConfig(env){
   await ensureNotificationTables(env);
@@ -580,14 +748,17 @@ async function createIssueResolvedNotifications(env,input){
 async function notificationsFeed(request,env){
   await ensureNotificationTables(env);const url=new URL(request.url),zman=normalizeZman(url.searchParams.get('zman')||url.searchParams.get('cohort')||CURRENT_ZMAN),installationId=text(url.searchParams.get('installationId'),100),includeArchived=url.searchParams.get('includeArchived')==='1';
   if(!SUPPORTED_ZMANIM.has(zman)||!installationId)return jsonResponse({error:'Invalid notification request'},{status:400});
+  const access=await syncAuthorizeLearner(request,env,installationId),cors=notificationCors(request,env);if(!access.ok)return jsonResponse({error:'This linked device is no longer authorized.'},{status:401,headers:cors||{}});
   const rows=await env.DB.prepare(`SELECT n.id,n.kind,n.zman,n.title,n.body,n.body_html,n.created_at,n.expires_at,n.content_type,n.content_id,n.action_json,s.read_at,s.archived_at FROM app_notifications n LEFT JOIN notification_state s ON s.notification_id=n.id AND s.installation_id=? WHERE (n.zman IS NULL OR n.zman=?) AND (n.target_installation_id IS NULL OR n.target_installation_id=?) AND (n.expires_at IS NULL OR n.expires_at>?) AND (?=1 OR s.archived_at IS NULL) ORDER BY n.created_at DESC LIMIT 100`).bind(installationId,zman,installationId,new Date().toISOString(),includeArchived?1:0).all();
-  const notifications=resultsOf(rows).map(r=>({id:r.id,kind:r.kind,zman:r.zman||zman,title:r.title,body:r.body,bodyHtml:r.body_html||null,createdAt:r.created_at,expiresAt:r.expires_at,contentType:r.content_type,contentId:r.content_id,action:parseAction(r.action_json),readAt:r.read_at||null,archivedAt:r.archived_at||null})),cors=notificationCors(request,env);
+  const notifications=resultsOf(rows).map(r=>({id:r.id,kind:r.kind,zman:r.zman||zman,title:r.title,body:r.body,bodyHtml:r.body_html||null,createdAt:r.created_at,expiresAt:r.expires_at,contentType:r.content_type,contentId:r.content_id,action:parseAction(r.action_json),readAt:r.read_at||null,archivedAt:r.archived_at||null}));
   return jsonResponse({zman,unread:notifications.filter(n=>!n.readAt&&!n.archivedAt).length,notifications},{headers:cors||{}});
 }
 async function updateNotificationState(request,env){
   const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});
+  await ensureNotificationTables(env);
   let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400,headers:cors})}
   const installationId=text(body?.installationId,100),id=text(body?.id,120);if(!installationId||!id)return jsonResponse({error:'Invalid notification state'},{status:400,headers:cors});
+  const access=await syncAuthorizeLearner(request,env,installationId);if(!access.ok)return jsonResponse({error:'This linked device is no longer authorized.'},{status:401,headers:cors});
   const now=new Date().toISOString(),current=await env.DB.prepare('SELECT read_at,archived_at FROM notification_state WHERE notification_id=? AND installation_id=?').bind(id,installationId).first(),readAt=body?.read===true?now:(body?.read===false?null:(current?.read_at||null)),archivedAt=body?.archived===true?now:(body?.archived===false?null:(current?.archived_at||null));
   await env.DB.prepare('INSERT INTO notification_state (notification_id,installation_id,read_at,archived_at,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(notification_id,installation_id) DO UPDATE SET read_at=excluded.read_at,archived_at=excluded.archived_at,updated_at=excluded.updated_at').bind(id,installationId,readAt,archivedAt,now).run();
   return jsonResponse({ok:true,id,readAt,archivedAt},{headers:cors});
@@ -595,15 +766,16 @@ async function updateNotificationState(request,env){
 async function pushConfigResponse(request,env){const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});const c=await vapidConfig(env);return jsonResponse({publicKey:c.publicKey},{headers:cors});}
 function normalizeSubscription(raw){const endpoint=text(raw?.endpoint,2000),p256dh=text(raw?.keys?.p256dh,1000),auth=text(raw?.keys?.auth,500);return endpoint&&p256dh&&auth?{endpoint,p256dh,auth}:null;}
 async function upsertPushSubscription(request,env){
-  const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400,headers:cors})}
-  const installationId=text(body?.installationId,100),zman=normalizeZman(body?.zman||body?.cohort||CURRENT_ZMAN),sub=normalizeSubscription(body?.subscription),timezone=text(body?.timezone,100)||'UTC',reminderEnabled=body?.reminderEnabled?1:0,reminderTime=/^\d{2}:\d{2}$/.test(String(body?.reminderTime||''))?String(body.reminderTime):null,israelCalendar=body?.israelCalendar?1:0;
+  const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});await ensureNotificationTables(env);let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400,headers:cors})}
+  const installationId=text(body?.installationId,100),deviceId=text(body?.deviceId,100)||null,zman=normalizeZman(body?.zman||body?.cohort||CURRENT_ZMAN),sub=normalizeSubscription(body?.subscription),timezone=text(body?.timezone,100)||'UTC',reminderEnabled=body?.reminderEnabled?1:0,reminderTime=/^\d{2}:\d{2}$/.test(String(body?.reminderTime||''))?String(body.reminderTime):null,israelCalendar=body?.israelCalendar?1:0;
   if(!installationId||!SUPPORTED_ZMANIM.has(zman)||!sub)return jsonResponse({error:'Invalid push subscription'},{status:400,headers:cors});
+  const access=await syncAuthorizeLearner(request,env,installationId);if(!access.ok||access.sync&&deviceId!==access.auth.deviceId)return jsonResponse({error:'This linked device is no longer authorized.'},{status:401,headers:cors});
   const now=new Date().toISOString(),cf=request.cf||{},latitude=roundCoord(cf.latitude),longitude=roundCoord(cf.longitude);
-  await env.DB.prepare(`INSERT INTO push_subscriptions (endpoint,installation_id,zman,p256dh,auth,timezone,reminder_enabled,reminder_time,israel_calendar,latitude_rounded,longitude_rounded,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET installation_id=excluded.installation_id,zman=excluded.zman,p256dh=excluded.p256dh,auth=excluded.auth,timezone=excluded.timezone,reminder_enabled=excluded.reminder_enabled,reminder_time=excluded.reminder_time,israel_calendar=excluded.israel_calendar,latitude_rounded=excluded.latitude_rounded,longitude_rounded=excluded.longitude_rounded,updated_at=excluded.updated_at`)
-    .bind(sub.endpoint,installationId,zman,sub.p256dh,sub.auth,timezone,reminderEnabled,reminderTime,israelCalendar,latitude,longitude,now,now).run();
+  await env.DB.prepare(`INSERT INTO push_subscriptions (endpoint,installation_id,zman,p256dh,auth,timezone,reminder_enabled,reminder_time,israel_calendar,latitude_rounded,longitude_rounded,device_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET installation_id=excluded.installation_id,zman=excluded.zman,p256dh=excluded.p256dh,auth=excluded.auth,timezone=excluded.timezone,reminder_enabled=excluded.reminder_enabled,reminder_time=excluded.reminder_time,israel_calendar=excluded.israel_calendar,latitude_rounded=excluded.latitude_rounded,longitude_rounded=excluded.longitude_rounded,device_id=excluded.device_id,updated_at=excluded.updated_at`)
+    .bind(sub.endpoint,installationId,zman,sub.p256dh,sub.auth,timezone,reminderEnabled,reminderTime,israelCalendar,latitude,longitude,deviceId,now,now).run();
   return jsonResponse({ok:true,reminderEnabled:!!reminderEnabled,reminderTime,israelCalendar:!!israelCalendar},{headers:cors});
 }
-async function removePushSubscription(request,env){const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400,headers:cors})}const installationId=text(body?.installationId,100),endpoint=text(body?.endpoint,2000);if(endpoint)await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint=?').bind(endpoint).run();else if(installationId)await env.DB.prepare('DELETE FROM push_subscriptions WHERE installation_id=?').bind(installationId).run();else return jsonResponse({error:'Invalid unsubscribe request'},{status:400,headers:cors});return jsonResponse({ok:true},{headers:cors});}
+async function removePushSubscription(request,env){const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});await ensureNotificationTables(env);let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400,headers:cors})}const installationId=text(body?.installationId,100),endpoint=text(body?.endpoint,2000);if(installationId){const access=await syncAuthorizeLearner(request,env,installationId);if(!access.ok)return jsonResponse({error:'This linked device is no longer authorized.'},{status:401,headers:cors});}if(endpoint)await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint=?').bind(endpoint).run();else if(installationId)await env.DB.prepare('DELETE FROM push_subscriptions WHERE installation_id=?').bind(installationId).run();else return jsonResponse({error:'Invalid unsubscribe request'},{status:400,headers:cors});return jsonResponse({ok:true},{headers:cors});}
 function localClock(date,timezone){try{const parts=new Intl.DateTimeFormat('en-CA',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date),v=Object.fromEntries(parts.filter(p=>p.type!=='literal').map(p=>[p.type,p.value]));return{date:`${v.year}-${v.month}-${v.day}`,time:`${v.hour}:${v.minute}`,year:Number(v.year),month:Number(v.month),day:Number(v.day)}}catch(_){return null}}
 function hasChag(events){return(events||[]).some(event=>(event.getFlags()&flags.CHAG)!==0);}
 function studyReminderBlockReason(now,clock,row){
@@ -650,6 +822,7 @@ async function nextStudyReminder(request,env){
   await ensureNotificationTables(env);
   const url=new URL(request.url),installationId=text(url.searchParams.get('installationId'),100),zman=normalizeZman(url.searchParams.get('zman')||CURRENT_ZMAN);
   if(!installationId||!SUPPORTED_ZMANIM.has(zman))return jsonResponse({error:'Invalid reminder request'},{status:400,headers:cors});
+  const access=await syncAuthorizeLearner(request,env,installationId);if(!access.ok)return jsonResponse({error:'This linked device is no longer authorized.'},{status:401,headers:cors});
   const row=await env.DB.prepare(`SELECT installation_id,zman,timezone,reminder_enabled,reminder_time,israel_calendar,latitude_rounded,longitude_rounded,updated_at
     FROM push_subscriptions WHERE installation_id=? AND zman=? ORDER BY updated_at DESC LIMIT 1`).bind(installationId,zman).first();
   if(!row||!Number(row.reminder_enabled)||!row.reminder_time)return jsonResponse({enabled:false,reason:'disabled'},{headers:cors});
@@ -689,8 +862,8 @@ async function createManualNotification(request,env){
 }
 async function deleteAnonymousServerData(request,env){
   const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});let body;try{body=await request.json()}catch(_){return jsonResponse({error:'Invalid JSON'},{status:400,headers:cors})}const installationId=text(body?.installationId,100);if(!installationId)return jsonResponse({error:'Installation ID required'},{status:400,headers:cors});
-  await ensureFeedbackTables(env);await ensureNotificationTables(env);const affected=resultsOf(await env.DB.prepare('SELECT DISTINCT content_type,content_id FROM feedback_reports WHERE installation_id=?').bind(installationId).all());
-  await env.DB.batch([env.DB.prepare('DELETE FROM events WHERE installation_id=?').bind(installationId),env.DB.prepare('DELETE FROM glossary_events WHERE installation_id=?').bind(installationId),env.DB.prepare('DELETE FROM essay_round_events WHERE installation_id=?').bind(installationId),env.DB.prepare('DELETE FROM essay_pairing_events WHERE installation_id=?').bind(installationId),env.DB.prepare("DELETE FROM learner_profiles WHERE installation_id=? OR installation_id LIKE '%::' || ?").bind(installationId,installationId),env.DB.prepare('DELETE FROM notification_state WHERE installation_id=?').bind(installationId),env.DB.prepare('DELETE FROM push_subscriptions WHERE installation_id=?').bind(installationId),env.DB.prepare('DELETE FROM feedback_reports WHERE installation_id=?').bind(installationId)]);
+  await ensureFeedbackTables(env);await ensureNotificationTables(env);await ensureSyncTables(env);const access=await syncAuthorizeLearner(request,env,installationId);if(!access.ok)return jsonResponse({error:'Sync authentication required to delete this linked learner.'},{status:401,headers:cors});const affected=resultsOf(await env.DB.prepare('SELECT DISTINCT content_type,content_id FROM feedback_reports WHERE installation_id=?').bind(installationId).all());
+  await env.DB.batch([env.DB.prepare('DELETE FROM events WHERE installation_id=?').bind(installationId),env.DB.prepare('DELETE FROM glossary_events WHERE installation_id=?').bind(installationId),env.DB.prepare('DELETE FROM resource_events WHERE installation_id=?').bind(installationId),env.DB.prepare('DELETE FROM essay_round_events WHERE installation_id=?').bind(installationId),env.DB.prepare('DELETE FROM essay_pairing_events WHERE installation_id=?').bind(installationId),env.DB.prepare("DELETE FROM learner_profiles WHERE installation_id=? OR installation_id LIKE '%::' || ?").bind(installationId,installationId),env.DB.prepare('DELETE FROM notification_state WHERE installation_id=?').bind(installationId),env.DB.prepare('DELETE FROM push_subscriptions WHERE installation_id=?').bind(installationId),env.DB.prepare('DELETE FROM app_notifications WHERE target_installation_id=?').bind(installationId),env.DB.prepare('DELETE FROM feedback_reports WHERE installation_id=?').bind(installationId),env.DB.prepare('DELETE FROM sync_ops WHERE learner_id=?').bind(installationId),env.DB.prepare('DELETE FROM sync_zman_generations WHERE learner_id=?').bind(installationId),env.DB.prepare('DELETE FROM sync_pair_codes WHERE learner_id=?').bind(installationId),env.DB.prepare('DELETE FROM sync_devices WHERE learner_id=?').bind(installationId),env.DB.prepare('DELETE FROM sync_accounts WHERE learner_id=?').bind(installationId)]);
   for(const item of affected){const latest=await env.DB.prepare('SELECT received_at,content_hash,wording,parent_id,title,category FROM feedback_reports WHERE content_type=? AND content_id=? ORDER BY received_at DESC,id DESC LIMIT 1').bind(item.content_type,item.content_id).first();if(!latest){await env.DB.prepare('DELETE FROM feedback_issues WHERE content_type=? AND content_id=?').bind(item.content_type,item.content_id).run();await env.DB.prepare('DELETE FROM feedback_revisions WHERE content_type=? AND content_id=?').bind(item.content_type,item.content_id).run();}else{const count=await env.DB.prepare('SELECT COUNT(*) n,MIN(received_at) first_at FROM feedback_reports WHERE content_type=? AND content_id=?').bind(item.content_type,item.content_id).first();await env.DB.prepare('UPDATE feedback_issues SET parent_id=?,title=?,category=?,first_report_at=?,last_report_at=?,report_count=?,last_content_hash=?,last_wording=?,updated_at=? WHERE content_type=? AND content_id=?').bind(latest.parent_id,latest.title,latest.category,count.first_at,latest.received_at,Number(count.n)||0,latest.content_hash,latest.wording,new Date().toISOString(),item.content_type,item.content_id).run();}}
   return jsonResponse({ok:true},{headers:cors});
 }
@@ -760,7 +933,7 @@ load();
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === '/api/health' && request.method === 'GET') return jsonResponse({ ok:true, service:'scp-study-analytics', version:20, feedback:true, push:true });
+    if (url.pathname === '/api/health' && request.method === 'GET') return jsonResponse({ ok:true, service:'scp-study-analytics', version:23, feedback:true, push:true, sync:true });
     if (url.pathname === '/api/feedback/report' && request.method === 'OPTIONS') {
       const cors = feedbackCors(request, env);
       return cors ? new Response(null, { status:204, headers:cors }) : new Response(null, { status:403 });
@@ -773,7 +946,8 @@ export default {
       url.pathname === '/api/push/subscribe' ||
       url.pathname === '/api/push/unsubscribe' ||
       url.pathname === '/api/reminders/next' ||
-      url.pathname === '/api/data/delete'
+      url.pathname === '/api/data/delete' ||
+      url.pathname.startsWith('/api/sync/')
     )) {
       const cors = notificationCors(request, env);
       return cors ? new Response(null, { status:204, headers:cors }) : new Response(null, { status:403 });
@@ -785,6 +959,15 @@ export default {
     if (url.pathname === '/api/push/unsubscribe' && request.method === 'POST') return removePushSubscription(request, env);
     if (url.pathname === '/api/reminders/next' && request.method === 'GET') return nextStudyReminder(request, env);
     if (url.pathname === '/api/data/delete' && request.method === 'POST') return deleteAnonymousServerData(request, env);
+    if (url.pathname === '/api/sync/create' && request.method === 'POST') return syncCreateAccount(request,env);
+    if (url.pathname === '/api/sync/pair/start' && request.method === 'POST') return syncPairStart(request,env);
+    if (url.pathname === '/api/sync/pair/finish' && request.method === 'POST') return syncPairFinish(request,env);
+    if (url.pathname === '/api/sync/devices' && request.method === 'GET') return syncDevices(request,env);
+    if (url.pathname === '/api/sync/devices/revoke' && request.method === 'POST') return syncRevokeDevice(request,env,false);
+    if (url.pathname === '/api/sync/devices/revoke-others' && request.method === 'POST') return syncRevokeDevice(request,env,true);
+    if (url.pathname === '/api/sync/unlink' && request.method === 'POST') return syncUnlinkCurrent(request,env);
+    if (url.pathname === '/api/sync/ops' && request.method === 'GET') return syncGetOps(request,env);
+    if (url.pathname === '/api/sync/ops' && request.method === 'POST') return syncPostOps(request,env);
     if (url.pathname === '/api/admin/notifications' && request.method === 'POST') return createManualNotification(request, env);
     if (url.pathname === '/api/feedback/issues' && request.method === 'GET') return feedbackIssues(request, env);
     if (url.pathname === '/api/feedback/detail' && request.method === 'GET') return feedbackDetail(request, env);
