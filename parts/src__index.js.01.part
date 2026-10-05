@@ -1,4 +1,4 @@
-import { DASHBOARD_HTML } from './dashboard.js';
+import { DASHBOARD_HTML, DASHBOARD_ICON_SVG } from './dashboard.js';
 import { QUESTION_CATALOG } from './question-catalog.js';
 import { ESSAY_CATALOG } from './essay-catalog.js';
 
@@ -83,6 +83,11 @@ function dashboardResponse() {
       'Referrer-Policy': 'no-referrer',
       'X-Content-Type-Options': 'nosniff'
     }
+  });
+}
+function dashboardIconResponse() {
+  return new Response(DASHBOARD_ICON_SVG, {
+    headers: { 'Content-Type':'image/svg+xml; charset=utf-8', 'Cache-Control':'public, max-age=86400' }
   });
 }
 function eventCors(request, env) {

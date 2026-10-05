@@ -1,6 +1,4 @@
     FROM events ${where} GROUP BY substr(received_at,1,10) ORDER BY day`, params).all();
-  const activityRows = stmt(env, `SELECT COALESCE(client_ts, received_at) ts, received_at, timezone, installation_id, attempt_number, result
-    FROM events ${where} ORDER BY received_at`, params).all();
   const glossaryRows = stmt(env, `SELECT term_id, MAX(term) term, COUNT(*) clicks, COUNT(DISTINCT installation_id) learners,
       SUM(CASE WHEN source='question' THEN 1 ELSE 0 END) question_clicks,
       SUM(CASE WHEN source='materials' THEN 1 ELSE 0 END) materials_clicks,
@@ -18,8 +16,8 @@
     ) GROUP BY term_id`, params).all();
 
 
-  const [overviewA, overviewB, topicA, topicB, questionA, questionB, selections, questionTimes, topicTimes, locationRows, timelineRows, activityRaw, glossaryRaw, glossaryRepeatsRaw] = await Promise.all([
-    baseOverview, pairOverview, topicBasic, topicPairs, questionBasic, questionPairs, selectionRows, questionTimeRows, topicTimeRows, locations, timeline, activityRows, glossaryRows, glossaryRepeatRows
+  const [overviewA, overviewB, topicA, topicB, questionA, questionB, selections, questionTimes, topicTimes, locationRows, timelineRows, glossaryRaw, glossaryRepeatsRaw] = await Promise.all([
+    baseOverview, pairOverview, topicBasic, topicPairs, questionBasic, questionPairs, selectionRows, questionTimeRows, topicTimeRows, locations, timeline, glossaryRows, glossaryRepeatRows
   ]);
 
   const selectionMap = new Map();
@@ -99,14 +97,6 @@
       answerCombos: (selectionMap.get(qid) || []).sort((a,b) => b.count - a.count)
     };
   });
-  const rawActivityRows = resultsOf(activityRaw);
-  const activity = localActivity(rawActivityRows);
-  const hasExplicitActivityDates = /^\d{4}-\d{2}-\d{2}$/.test(String(url.searchParams.get('from') || '')) || /^\d{4}-\d{2}-\d{2}$/.test(String(url.searchParams.get('to') || ''));
-  const peakCutoff = Date.now() - 90 * 24 * 60 * 60 * 1000;
-  const peakActivity = hasExplicitActivityDates ? activity : localActivity(rawActivityRows.filter(row => {
-    const receivedAt = Date.parse(row.received_at || '');
-    return Number.isFinite(receivedAt) && receivedAt >= peakCutoff;
-  }));
   const glossaryRepeatMap = new Map(resultsOf(glossaryRepeatsRaw).map(r => [String(r.term_id), r]));
   const glossaryTerms = resultsOf(glossaryRaw).map(r => {
     const repeat = glossaryRepeatMap.get(String(r.term_id)) || {};
@@ -137,11 +127,36 @@
       country:r.country, region:r.region, regionCode:r.region_code, city:r.city, learners:Number(r.learners)||0,
       submissions:Number(r.submissions)||0, firstAttempts:Number(r.first_attempts)||0, firstCorrect:Number(r.first_correct)||0
     })),
-    timeline: activity.days,
-    activity,
-    peakActivity,
+    timeline: resultsOf(timelineRows).map(r => ({
+      day:r.day, submissions:Number(r.submissions)||0, learners:Number(r.learners)||0,
+      firstAttempts:Number(r.first_attempts)||0, firstCorrect:Number(r.first_correct)||0
+    })),
     glossaryTerms,
     questionCatalog: QUESTION_CATALOG
+  });
+}
+
+async function dashboardActivitySummary(request, env) {
+  await ensureChaburaStorage(env);
+  const url = new URL(request.url);
+  if (!url.searchParams.get('zman') && !url.searchParams.get('cohort')) url.searchParams.set('zman', CURRENT_ZMAN);
+  try { catalogForZman(url.searchParams.get('zman') || url.searchParams.get('cohort') || CURRENT_ZMAN); }
+  catch (error) { return jsonResponse({ error:error.message === 'Unsupported zman' ? 'Select a supported zman' : error.message }, { status:400 }); }
+
+  const explicitDates = /^\d{4}-\d{2}-\d{2}$/.test(String(url.searchParams.get('from') || '')) || /^\d{4}-\d{2}-\d{2}$/.test(String(url.searchParams.get('to') || ''));
+  const allDates = !explicitDates && url.searchParams.get('range') === 'all';
+  let { where, params } = queryFilter(url);
+  if (!explicitDates && !allDates) {
+    const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    where += where ? ' AND received_at >= ?' : 'WHERE received_at >= ?';
+    params = [...params, cutoff];
+  }
+  const rows = await stmt(env, `SELECT COALESCE(client_ts, received_at) ts, timezone, installation_id, attempt_number, result
+    FROM events ${where} ORDER BY received_at`, params).all();
+  return jsonResponse({
+    generatedAt:new Date().toISOString(),
+    range:explicitDates ? 'filtered' : (allDates ? 'all' : '90d'),
+    activity:localActivity(resultsOf(rows))
   });
 }
 
@@ -362,11 +377,13 @@ export default {
       return cors ? new Response(null, { status: 204, headers: cors }) : new Response(null, { status: 403 });
     }
     if (request.method === 'POST' && url.pathname === '/api/events') return ingestEvents(request, env);
-    if (request.method === 'GET' && url.pathname === '/api/health') return jsonResponse({ ok: true, service: 'scp-study-analytics', version: 25 });
+    if (request.method === 'GET' && url.pathname === '/api/health') return jsonResponse({ ok: true, service: 'scp-study-analytics', version: 26 });
     if (request.method === 'GET' && url.pathname === '/api/options') return dashboardOptions(env);
     if (request.method === 'GET' && url.pathname === '/api/summary') return dashboardSummary(request, env);
+    if (request.method === 'GET' && url.pathname === '/api/activity-summary') return dashboardActivitySummary(request, env);
     if (request.method === 'GET' && url.pathname === '/api/resource-summary') return dashboardResourceSummary(request, env);
     if (request.method === 'GET' && url.pathname === '/api/essay-summary') return dashboardEssaySummary(request, env);
+    if (request.method === 'GET' && url.pathname === '/icon.svg') return dashboardIconResponse();
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/dashboard')) return dashboardResponse();
     return new Response('Not found', { status: 404, headers: { 'X-Robots-Tag': 'noindex, nofollow' } });
   }

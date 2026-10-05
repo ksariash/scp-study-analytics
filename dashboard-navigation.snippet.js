@@ -1,3 +1,5 @@
+export const DASHBOARD_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="SCP Study Dashboard"><defs><linearGradient id="db-bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#143f94"/><stop offset="1" stop-color="#061638"/></linearGradient><linearGradient id="db-blue" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#28a3ff"/><stop offset="1" stop-color="#1762ff"/></linearGradient><linearGradient id="db-gold" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#ffad17"/><stop offset="1" stop-color="#fff27a"/></linearGradient></defs><rect x="2" y="2" width="60" height="60" rx="15" fill="url(#db-bg)" stroke="#2c72ff" stroke-width="2"/><path d="M15 46V35h8v11zm13 0V27h8v19zm13 0V19h8v27z" fill="url(#db-blue)"/><path d="M14 30l10-8 9 4 16-13" fill="none" stroke="url(#db-gold)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M43 13h6v6" fill="none" stroke="#ffe26b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
 function enhanceDashboardHtml(html) {
   const quickLinks = [
     ["#overview", "Overview"],
@@ -25,7 +27,7 @@ function enhanceDashboardHtml(html) {
 
   const topHeader =
     '<header class="top"><div class="topin">' +
-      '<div class="dashboard-title-block"><h1>SCP Study — Instructor Dashboard</h1></div>' +
+      '<div class="dashboard-title-block"><span class="dashboard-app-mark" aria-hidden="true">' + DASHBOARD_ICON_SVG + '</span><h1>SCP Study — Instructor Dashboard</h1></div>' +
       '<nav class="suite-nav" aria-label="SCP applications">' +
         '<a class="suite-nav-action" href="https://scp-study.ksariash.workers.dev/" target="_blank" rel="noopener" aria-label="Open Study" title="Study">' +
           '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 6.5c3-1 5.1-.5 7.5 1v11c-2.4-1.5-4.5-2-7.5-1v-11Zm15 0c-3-1-5.1-.5-7.5 1v11c2.4-1.5 4.5-2 7.5-1v-11Z"/></svg><span>Study</span>' +
@@ -55,7 +57,9 @@ body[id="top"]{scroll-margin-top:0}
 .section-jump a,.jump-menu a{color:#294f99;text-decoration:none;font-size:.7rem;font-weight:850;white-space:nowrap}
 .section-jump a{padding:6px 8px;border-radius:9px;background:#f3f6fc;border:1px solid #e3e9f4}
 .section-jump a:hover,.section-jump a:focus-visible{background:#eaf0fb;outline:none}
-.dashboard-title-block{min-width:0}
+.dashboard-title-block{display:flex;align-items:center;gap:10px;min-width:0}
+.dashboard-app-mark{display:grid;place-items:center;width:42px;height:42px;flex:0 0 auto;border-radius:11px;box-shadow:0 5px 14px rgba(0,0,0,.2)}
+.dashboard-app-mark svg{display:block;width:42px;height:42px}
 .topin{align-items:center!important}
 .suite-nav{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex:0 0 auto;white-space:nowrap}
 .suite-nav-action{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:40px;height:40px;padding:0 10px;border:1px solid rgba(255,255,255,.28);border-radius:10px;background:rgba(255,255,255,.08);color:#fff;text-decoration:none;font-size:.72rem;font-weight:850}
@@ -72,6 +76,7 @@ body[id="top"]{scroll-margin-top:0}
 @media(max-width:650px){
   .topin{flex-direction:row!important;align-items:flex-start!important;gap:10px!important}
   .dashboard-title-block{flex:1 1 auto}
+  .dashboard-app-mark,.dashboard-app-mark svg{width:36px;height:36px}
   .top h1{font-size:1.2rem;line-height:1.18;overflow-wrap:anywhere}
   .suite-nav{margin-left:auto;gap:5px}
   .suite-nav-action{width:38px;min-width:38px;height:38px;padding:0;border-radius:10px}
@@ -553,6 +558,8 @@ body[id="top"]{scroll-margin-top:0}
   let timelinePage = 0;
   let timelinePageSize = 10;
   let peakAllDates = false;
+  let peakRequest = 0;
+  const peakCache = new Map();
 
   function explicitDateFilter() {
     return !!(document.getElementById('from')?.value || document.getElementById('to')?.value);
@@ -581,17 +588,37 @@ body[id="top"]{scroll-margin-top:0}
     pagination.hidden = false;
   };
 
-  renderPeakTimes = () => {
+  async function loadPeakTimes() {
     const dated = explicitDateFilter();
     peakToggle.hidden = dated;
     peakToggle.setAttribute('aria-pressed', String(!dated && peakAllDates));
     peakLabel.textContent = (dated ? 'Dashboard date filter' : (peakAllDates ? 'All dates' : 'Trailing 90 days')) + ' · local clock time at each student’s approximate network timezone';
-    const activity = dated || peakAllDates ? currentData?.activity : (currentData?.peakActivity || currentData?.activity);
-    baseRenderPeakTimes(activity);
-  };
+    const params = new URLSearchParams(query());
+    if (!dated && peakAllDates) params.set('range', 'all');
+    const key = params.toString();
+    const cached = peakCache.get(key);
+    if (cached) { baseRenderPeakTimes(cached); return; }
+    const requestId = ++peakRequest;
+    document.getElementById('peakTimes').innerHTML = '<div class="empty">Loading study times…</div>';
+    try {
+      const response = await fetch('/api/activity-summary' + (key ? '?' + key : ''), { cache:'no-store' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not load study times');
+      if (requestId !== peakRequest) return;
+      peakCache.set(key, data.activity);
+      baseRenderPeakTimes(data.activity);
+    } catch (error) {
+      if (requestId !== peakRequest) return;
+      document.getElementById('peakTimes').innerHTML = '<div class="empty">Could not load study times: ' + esc(error.message) + '</div>';
+    }
+  }
+
+  renderPeakTimes = () => { void loadPeakTimes(); };
 
   renderAll = data => {
     timelinePage = 0;
+    peakRequest += 1;
+    peakCache.clear();
     baseRenderAll(data);
   };
 
@@ -694,7 +721,7 @@ body[id="top"]{scroll-margin-top:0}
     .replace('<h2>Activity over time</h2>', '<h2 id="activity-over-time">Activity over time</h2>')
     .replace('<div class="activity-grid"><div class="activity-panel"><h3>Peak study times</h3><span class="activity-sub">Local clock time at each student’s approximate network timezone</span><div id="peakTimes"></div></div><div class="activity-panel"><h3>Answer submissions by day</h3><span class="activity-sub">Up to the most recent 90 days in the selected filters</span><div id="timeline"></div></div></div>', activityPanel)
     .replace('<section class="overview" id="overview"></section>', inlineNav + '<section class="overview" id="overview"></section>')
-    .replace('</head>', styles + '</head>')
+    .replace('</head>', '<link rel="icon" type="image/svg+xml" href="/icon.svg">' + styles + '</head>')
     .replace('</body>', floatingNav + behavior + feedbackBehavior + resourceBehavior + essayBehavior + activityBehavior + referenceBehavior + announcementBehavior + '</body>');
 }
 
