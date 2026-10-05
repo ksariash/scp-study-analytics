@@ -1,4 +1,4 @@
-import { DASHBOARD_HTML, DASHBOARD_ICON_SVG } from './dashboard.js';
+import { DASHBOARD_HTML, DASHBOARD_ICON_SVG, DASHBOARD_ICON_PNG_BASE64 } from './dashboard.js';
 import { QUESTION_CATALOG } from './question-catalog.js';
 import { ESSAY_CATALOG } from './essay-catalog.js';
 
@@ -88,6 +88,13 @@ function dashboardResponse() {
 function dashboardIconResponse() {
   return new Response(DASHBOARD_ICON_SVG, {
     headers: { 'Content-Type':'image/svg+xml; charset=utf-8', 'Cache-Control':'public, max-age=86400' }
+  });
+}
+function dashboardTouchIconResponse() {
+  const binary = atob(DASHBOARD_ICON_PNG_BASE64);
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  return new Response(bytes, {
+    headers: { 'Content-Type':'image/png', 'Cache-Control':'public, max-age=31536000, immutable' }
   });
 }
 function eventCors(request, env) {

@@ -381,13 +381,14 @@ export default {
       return cors ? new Response(null, { status: 204, headers: cors }) : new Response(null, { status: 403 });
     }
     if (request.method === 'POST' && url.pathname === '/api/events') return ingestEvents(request, env);
-    if (request.method === 'GET' && url.pathname === '/api/health') return jsonResponse({ ok: true, service: 'scp-study-analytics', version: 28 });
+    if (request.method === 'GET' && url.pathname === '/api/health') return jsonResponse({ ok: true, service: 'scp-study-analytics', version: 29 });
     if (request.method === 'GET' && url.pathname === '/api/options') return dashboardOptions(env);
     if (request.method === 'GET' && url.pathname === '/api/summary') return dashboardSummary(request, env);
     if (request.method === 'GET' && url.pathname === '/api/activity-summary') return dashboardActivitySummary(request, env);
     if (request.method === 'GET' && url.pathname === '/api/resource-summary') return dashboardResourceSummary(request, env);
     if (request.method === 'GET' && url.pathname === '/api/essay-summary') return dashboardEssaySummary(request, env);
     if (request.method === 'GET' && url.pathname === '/icon.svg') return dashboardIconResponse();
+    if (request.method === 'GET' && url.pathname === '/apple-touch-icon.png') return dashboardTouchIconResponse();
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/dashboard')) return dashboardResponse();
     return new Response('Not found', { status: 404, headers: { 'X-Robots-Tag': 'noindex, nofollow' } });
   }

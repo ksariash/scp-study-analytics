@@ -55,7 +55,7 @@ for (const [target, prefix] of targets) {
   if (target === "src/dashboard.js") {
     const probe = source.replaceAll("export const ", "const ");
     const rendered = Function(probe + "\nreturn DASHBOARD_HTML;")();
-    for (const required of ['id="dashboard-filters"','id="chaburaRegion"','id="chabura"','id="study-aid-usage"','id="essay-analytics"','class="suite-nav"','class="dashboard-app-mark"','href="/icon.svg"','id="peakRangeToggle"','id="timelinePageSize"','id="timelinePagination"','id="dashboardActivityPagingScript"','id="dashboardReferenceLinksScript"']) {
+    for (const required of ['id="dashboard-filters"','id="chaburaRegion"','id="chabura"','id="study-aid-usage"','id="essay-analytics"','class="suite-nav"','class="dashboard-app-mark"','href="/icon.svg?v=29"','rel="apple-touch-icon"','href="/apple-touch-icon.png?v=29"','id="peakRangeToggle"','id="timelinePageSize"','id="timelinePagination"','id="dashboardActivityPagingScript"','id="dashboardReferenceLinksScript"']) {
       if (!rendered.includes(required)) throw new Error(`Dashboard enhancement missing required marker: ${required}`);
     }
     if (rendered.includes('id="announcements-admin"')) throw new Error("Announcements UI must not live in Analytics.");
