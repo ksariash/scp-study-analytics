@@ -718,6 +718,17 @@ async function syncPostOps(request,env){
   }
   return jsonResponse({ok:true,accepted,stale,generations:Object.fromEntries(generationCache)},{headers:cors});
 }
+async function syncNudgeDevices(request,env){
+  const cors=notificationCors(request,env);if(!cors)return jsonResponse({error:'Origin not allowed'},{status:403});
+  await Promise.all([ensureSyncTables(env),ensureNotificationTables(env)]);
+  const auth=await syncAuth(request,env);if(!auth)return jsonResponse({error:'Sync authentication required'},{status:401,headers:cors});
+  const rows=resultsOf(await env.DB.prepare(`SELECT p.endpoint,p.p256dh,p.auth,p.device_id
+    FROM push_subscriptions p
+    INNER JOIN sync_devices d ON d.device_id=p.device_id AND d.learner_id=p.installation_id AND d.revoked_at IS NULL
+    WHERE p.installation_id=? AND p.device_id<>?`).bind(auth.learnerId,auth.deviceId).all());
+  const payload={data:{type:'sync_request'}},results=await Promise.all(rows.map(row=>sendPushSubscription(env,row,payload,{ttl:60}))),devices=new Set(rows.map(row=>String(row.device_id||'')).filter(Boolean)),notifiedDevices=new Set(rows.filter((_,index)=>results[index]).map(row=>String(row.device_id||'')).filter(Boolean));
+  return jsonResponse({ok:true,requestedDevices:devices.size,notifiedDevices:notifiedDevices.size},{headers:cors});
+}
 async function vapidConfig(env){
   await ensureNotificationTables(env);
   let row=await env.DB.prepare('SELECT public_key,private_key,subject FROM push_config WHERE id=1').first();
@@ -728,9 +739,10 @@ function parseAction(value){
   if(!value)return null;
   try{const a=typeof value==='string'?JSON.parse(value):value;if(!a||typeof a!=='object'||Array.isArray(a))return null;const type=text(a.type,32),label=text(a.label,80),url=text(a.url,1000),pollId=text(a.pollId,120);return type||label||url||pollId?{type:type||'link',label,url,pollId}:null}catch(_){return null}
 }
-async function sendPushSubscription(env,row,payload){
+async function sendPushSubscription(env,row,payload,{ttl=86400}={}){
   const c=await vapidConfig(env);webpush.setVapidDetails(c.subject,c.publicKey,c.privateKey);
-  try{await webpush.sendNotification({endpoint:row.endpoint,keys:{p256dh:row.p256dh,auth:row.auth}},JSON.stringify(payload),{TTL:86400});return true}catch(error){const statusCode=error instanceof webpush.WebPushError?error.statusCode:Number(error?.statusCode||0);if(statusCode===404||statusCode===410)await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint=?').bind(row.endpoint).run();return false}
+  const safeTtl=Math.max(0,Math.min(86400,Number.isFinite(Number(ttl))?Number(ttl):86400));
+  try{await webpush.sendNotification({endpoint:row.endpoint,keys:{p256dh:row.p256dh,auth:row.auth}},JSON.stringify(payload),{TTL:safeTtl});return true}catch(error){const statusCode=error instanceof webpush.WebPushError?error.statusCode:Number(error?.statusCode||0);if(statusCode===404||statusCode===410)await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint=?').bind(row.endpoint).run();return false}
 }
 async function pushNotificationToAudience(env,n,installationIds=null){
   const clauses=[],params=[];
@@ -933,7 +945,7 @@ load();
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === '/api/health' && request.method === 'GET') return jsonResponse({ ok:true, service:'scp-study-analytics', version:23, feedback:true, push:true, sync:true });
+    if (url.pathname === '/api/health' && request.method === 'GET') return jsonResponse({ ok:true, service:'scp-study-analytics', version:24, feedback:true, push:true, sync:true });
     if (url.pathname === '/api/feedback/report' && request.method === 'OPTIONS') {
       const cors = feedbackCors(request, env);
       return cors ? new Response(null, { status:204, headers:cors }) : new Response(null, { status:403 });
@@ -968,6 +980,7 @@ export default {
     if (url.pathname === '/api/sync/unlink' && request.method === 'POST') return syncUnlinkCurrent(request,env);
     if (url.pathname === '/api/sync/ops' && request.method === 'GET') return syncGetOps(request,env);
     if (url.pathname === '/api/sync/ops' && request.method === 'POST') return syncPostOps(request,env);
+    if (url.pathname === '/api/sync/nudge' && request.method === 'POST') return syncNudgeDevices(request,env);
     if (url.pathname === '/api/admin/notifications' && request.method === 'POST') return createManualNotification(request, env);
     if (url.pathname === '/api/feedback/issues' && request.method === 'GET') return feedbackIssues(request, env);
     if (url.pathname === '/api/feedback/detail' && request.method === 'GET') return feedbackDetail(request, env);

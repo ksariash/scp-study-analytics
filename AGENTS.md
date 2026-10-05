@@ -91,6 +91,8 @@ Feedback reports may contain multiple tags. Supported UI vocabulary: Inaccurate,
 
 Linked devices intentionally share notification read/archive state through their anonymous learner ID. Push endpoints and reminder delivery remain device-specific. `push_subscriptions.device_id` is the revocation boundary; never remove all of a learner's endpoints when only one device is being unlinked.
 
+`POST /api/sync/nudge` is an authenticated, best-effort control signal used by Study's explicit Sync now action. It may send a short-TTL `sync_request` Web Push only to the other non-revoked linked devices that currently have a PushSubscription. It must never accept a learner ID from the request body as authority, must never send the raw device credential in a push payload, and must not turn Web Push into the canonical sync store. A nudge can wake an active/background client; a fully closed client still reconciles on its normal next launch/resume.
+
 Sync progress uses idempotent Zman-scoped operations with per-Zman reset generations. Never accept the anonymous learner/installation ID itself as authorization for sync reads or writes. Once a sync account exists, inbox/push/reminder mutations and anonymous server deletion for that learner also require a live linked-device credential.
 
 
