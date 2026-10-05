@@ -102,6 +102,18 @@ body[id="top"]{scroll-margin-top:0}
 .question-study-reference:hover,.question-study-reference:focus-visible{background:#edf3fc;outline:none}
 .question-study-reference svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 @media(max-width:650px){.question-study-reference span{display:none}.question-study-reference{width:34px;padding:0;justify-content:center}}
+.activity-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px;min-width:0}
+.activity-panel-head>div{min-width:0}.activity-panel-head .activity-sub{margin-bottom:0}
+.range-toggle{flex:0 0 auto;min-height:32px;padding:5px 9px;border:1px solid #d4ddea;border-radius:9px;background:#fff;color:#31569a;font:inherit;font-size:.66rem;font-weight:850;cursor:pointer}
+.range-toggle:hover,.range-toggle:focus-visible{background:#eef4ff;border-color:#b7c9e6;outline:none}
+.range-toggle[aria-pressed="true"]{background:#dfeaff;border-color:#7597d3;color:#173e88;box-shadow:inset 0 0 0 1px rgba(49,86,183,.08)}
+.timeline-size{display:grid;grid-template-columns:auto auto;align-items:center;gap:6px;flex:0 0 auto;color:var(--muted);font-size:.61rem;font-weight:800;white-space:nowrap}
+.timeline-size select{min-width:62px;height:32px;padding:5px 7px;border:1px solid #d4ddea;border-radius:9px;background:#fff;color:var(--ink);font:inherit;font-size:.67rem;font-weight:800}
+.timeline-pagination{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px;padding-top:8px;border-top:1px solid #edf1f6}
+.timeline-pagination[hidden]{display:none}.timeline-pagination span{min-width:0;color:var(--muted);font-size:.61rem;font-weight:750;text-align:center}
+.timeline-pagination button{min-height:32px;padding:5px 9px;border:1px solid #d4ddea;border-radius:9px;background:#fff;color:#31569a;font:inherit;font-size:.65rem;font-weight:850;cursor:pointer}
+.timeline-pagination button:hover:not(:disabled),.timeline-pagination button:focus-visible{background:#eef4ff;outline:none}.timeline-pagination button:disabled{opacity:.42;cursor:default}
+@media(max-width:650px){.activity-panel-head{align-items:flex-start}.timeline-size{grid-template-columns:1fr;gap:2px}.range-toggle{min-height:34px}.timeline-pagination button{min-height:34px}}
 @media(max-width:700px){.resource-usage-overview{grid-template-columns:1fr}.resource-grid{grid-template-columns:1fr}}
 .feedback-controls{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
 .feedback-controls select,.feedback-controls input[type="search"]{min-height:34px;padding:6px 8px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);font:inherit;font-size:.68rem;font-weight:750}
@@ -187,6 +199,15 @@ body[id="top"]{scroll-margin-top:0}
 
 
   const announcementSection = '';
+
+  const activityPanel =
+    '<div class="activity-grid">' +
+      '<div class="activity-panel"><div class="activity-panel-head"><div><h3>Peak study times</h3><span class="activity-sub" id="peakRangeLabel">Trailing 90 days · local clock time at each student’s approximate network timezone</span></div>' +
+        '<button class="range-toggle" id="peakRangeToggle" type="button" aria-pressed="false">All dates</button></div><div id="peakTimes"></div></div>' +
+      '<div class="activity-panel"><div class="activity-panel-head"><div><h3>Answer submissions by day</h3><span class="activity-sub">Newest activity first, grouped by day</span></div>' +
+        '<label class="timeline-size" for="timelinePageSize"><span>Days per page</span><select id="timelinePageSize" aria-label="Days per page"><option value="10" selected>10</option><option value="20">20</option><option value="30">30</option><option value="60">60</option><option value="90">90</option></select></label></div>' +
+        '<div id="timeline"></div><div class="timeline-pagination" id="timelinePagination"><button type="button" id="timelineNewer">← Newer</button><span id="timelineRange"></span><button type="button" id="timelineOlder">Older →</button></div></div>' +
+    '</div>';
 
   const resourceSection =
     '<section class="section" id="study-aid-usage" style="margin-top:14px">' +
@@ -515,6 +536,85 @@ body[id="top"]{scroll-margin-top:0}
 })();
 </script>`;
 
+  const activityBehavior = `
+<script id="dashboardActivityPagingScript">
+(() => {
+  const peakToggle = document.getElementById('peakRangeToggle');
+  const peakLabel = document.getElementById('peakRangeLabel');
+  const pageSizeSelect = document.getElementById('timelinePageSize');
+  const pagination = document.getElementById('timelinePagination');
+  const range = document.getElementById('timelineRange');
+  const newer = document.getElementById('timelineNewer');
+  const older = document.getElementById('timelineOlder');
+  if (!peakToggle || !peakLabel || !pageSizeSelect || !pagination || !range || !newer || !older) return;
+
+  const baseRenderPeakTimes = renderPeakTimes;
+  const baseRenderAll = renderAll;
+  let timelinePage = 0;
+  let timelinePageSize = 10;
+  let peakAllDates = false;
+
+  function explicitDateFilter() {
+    return !!(document.getElementById('from')?.value || document.getElementById('to')?.value);
+  }
+
+  renderTimeline = rows => {
+    const target = document.getElementById('timeline');
+    const ordered = [...(rows || [])].sort((a,b) => String(b.day || '').localeCompare(String(a.day || '')));
+    if (!ordered.length) {
+      target.innerHTML = '<div class="empty">No activity for these filters.</div>';
+      pagination.hidden = true;
+      return;
+    }
+    const pages = Math.max(1, Math.ceil(ordered.length / timelinePageSize));
+    timelinePage = Math.min(Math.max(0, timelinePage), pages - 1);
+    const start = timelinePage * timelinePageSize;
+    const visible = ordered.slice(start, start + timelinePageSize).reverse();
+    const max = Math.max(...visible.map(row => Number(row.submissions) || 0), 1);
+    target.innerHTML = visible.map(row => '<div class="barrow"><div class="barlabel">' + esc(row.day) + '</div><div class="track"><div class="fill" style="width:' + (100 * (Number(row.submissions) || 0) / max) + '%"></div></div><div class="barvalue">' + Number(row.submissions || 0) + '<span class="heat-sub">' + Number(row.learners || 0) + ' learners</span></div></div>').join('');
+    const end = Math.min(start + timelinePageSize, ordered.length);
+    const newest = ordered[start]?.day || '';
+    const oldest = ordered[end - 1]?.day || newest;
+    range.textContent = oldest + ' – ' + newest + ' · ' + (start + 1) + '–' + end + ' of ' + ordered.length + ' days';
+    newer.disabled = timelinePage === 0;
+    older.disabled = timelinePage >= pages - 1;
+    pagination.hidden = false;
+  };
+
+  renderPeakTimes = () => {
+    const dated = explicitDateFilter();
+    peakToggle.hidden = dated;
+    peakToggle.setAttribute('aria-pressed', String(!dated && peakAllDates));
+    peakLabel.textContent = (dated ? 'Dashboard date filter' : (peakAllDates ? 'All dates' : 'Trailing 90 days')) + ' · local clock time at each student’s approximate network timezone';
+    const activity = dated || peakAllDates ? currentData?.activity : (currentData?.peakActivity || currentData?.activity);
+    baseRenderPeakTimes(activity);
+  };
+
+  renderAll = data => {
+    timelinePage = 0;
+    baseRenderAll(data);
+  };
+
+  pageSizeSelect.addEventListener('change', () => {
+    timelinePageSize = Math.max(1, Number(pageSizeSelect.value) || 10);
+    timelinePage = 0;
+    renderTimeline(currentData?.timeline || []);
+  });
+  newer.addEventListener('click', () => {
+    timelinePage = Math.max(0, timelinePage - 1);
+    renderTimeline(currentData?.timeline || []);
+  });
+  older.addEventListener('click', () => {
+    timelinePage += 1;
+    renderTimeline(currentData?.timeline || []);
+  });
+  peakToggle.addEventListener('click', () => {
+    peakAllDates = !peakAllDates;
+    renderPeakTimes();
+  });
+})();
+</script>`;
+
   const referenceBehavior = `
 <script id="dashboardReferenceLinksScript">
 (() => {
@@ -592,9 +692,10 @@ body[id="top"]{scroll-margin-top:0}
     .replace('<section class="section" style="margin-top:14px"><div class="section-head"><div class="headcopy"><h2>Question diagnostics</h2>', resourceSection + announcementSection + essaySection + feedbackSection + '<section class="section" style="margin-top:14px"><div class="section-head"><div class="headcopy"><h2>Question diagnostics</h2>')
     .replace('<h2>Question diagnostics</h2>', '<h2 id="questions-diagnostics">Question diagnostics</h2>')
     .replace('<h2>Activity over time</h2>', '<h2 id="activity-over-time">Activity over time</h2>')
+    .replace('<div class="activity-grid"><div class="activity-panel"><h3>Peak study times</h3><span class="activity-sub">Local clock time at each student’s approximate network timezone</span><div id="peakTimes"></div></div><div class="activity-panel"><h3>Answer submissions by day</h3><span class="activity-sub">Up to the most recent 90 days in the selected filters</span><div id="timeline"></div></div></div>', activityPanel)
     .replace('<section class="overview" id="overview"></section>', inlineNav + '<section class="overview" id="overview"></section>')
     .replace('</head>', styles + '</head>')
-    .replace('</body>', floatingNav + behavior + feedbackBehavior + resourceBehavior + essayBehavior + referenceBehavior + announcementBehavior + '</body>');
+    .replace('</body>', floatingNav + behavior + feedbackBehavior + resourceBehavior + essayBehavior + activityBehavior + referenceBehavior + announcementBehavior + '</body>');
 }
 
 export const DASHBOARD_HTML = enhanceDashboardHtml(__DASHBOARD_BASE_HTML);

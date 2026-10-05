@@ -126,6 +126,8 @@ Prefer familiar icons for compact utility actions when the meaning is unambiguou
 
 Avoid redundant Zman explanatory copy above or below the filter card. The selected Zman in the control is sufficient.
 
+Activity over time has two independent presentation rules. Peak study times defaults to the trailing 90 days when no explicit From/Through date filter is active; an All dates toggle may reveal the full filtered history, while an explicit date filter always takes precedence. Answer submissions by day is client-side paginated newest-first in 10-day pages by default, with selectable larger page sizes; changing pages or page size must not issue another summary/database request.
+
 
 ## Dashboard enhancement invariant
 
