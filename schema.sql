@@ -37,6 +37,12 @@ CREATE INDEX IF NOT EXISTS idx_events_location ON events(country, region, city);
 CREATE INDEX IF NOT EXISTS idx_events_mode ON events(mode);
 CREATE INDEX IF NOT EXISTS idx_events_install_question ON events(installation_id, question_id);
 
+CREATE TABLE IF NOT EXISTS runtime_schema_meta (
+  schema_key TEXT PRIMARY KEY,
+  schema_version TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
 
 CREATE TABLE IF NOT EXISTS glossary_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

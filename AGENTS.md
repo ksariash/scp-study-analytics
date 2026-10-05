@@ -64,6 +64,8 @@ When a change adds a table/column or makes an existing route touch a table it di
 
 A normal happy-path test against a warmed local database is insufficient for a D1-affecting release. The clean-database first-request check is part of the required validation.
 
+The core analytics migration uses `runtime_schema_meta` to avoid repeating expensive DDL/PRAGMA work on every new Worker isolate. `CHABURA_SCHEMA_MARKER_VERSION` is a persisted proof that `ensureChaburaStorage()` completed. Any change to the tables, columns, indexes, legacy-Zman rewrites, or other invariant established by that migration must bump the marker version; write the marker only after every migration step succeeds. Never use the marker to bypass a migration that has not been represented by a new version.
+
 Before destructive transformations or table rebuilds, take a recoverable backup/export when tooling permits. Never silently reinterpret existing Zman/content identity.
 
 ## Cross-repository contract
