@@ -335,3 +335,42 @@ CREATE TABLE IF NOT EXISTS sync_ops (
   client_ts TEXT, created_at TEXT NOT NULL, UNIQUE(learner_id, op_id)
 );
 CREATE INDEX IF NOT EXISTS idx_sync_ops_learner_seq ON sync_ops(learner_id, seq);
+
+-- First-class practice-test attempts. Individual M/C answers continue to live in
+-- events; this table records the attempt-level result, including essay totals.
+CREATE TABLE IF NOT EXISTS test_attempts (
+  event_id TEXT PRIMARY KEY,
+  installation_id TEXT NOT NULL,
+  cohort TEXT NOT NULL,
+  app_version TEXT,
+  client_ts TEXT,
+  started_at TEXT,
+  ended_at TEXT,
+  received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  reason TEXT NOT NULL,
+  completed INTEGER NOT NULL DEFAULT 0,
+  question_total INTEGER NOT NULL DEFAULT 0,
+  question_answered INTEGER NOT NULL DEFAULT 0,
+  correct INTEGER NOT NULL DEFAULT 0,
+  partial INTEGER NOT NULL DEFAULT 0,
+  incorrect INTEGER NOT NULL DEFAULT 0,
+  unanswered INTEGER NOT NULL DEFAULT 0,
+  score_pct REAL NOT NULL DEFAULT 0,
+  essay_total INTEGER NOT NULL DEFAULT 0,
+  essay_answered INTEGER NOT NULL DEFAULT 0,
+  essay_pair_correct INTEGER NOT NULL DEFAULT 0,
+  essay_pair_total INTEGER NOT NULL DEFAULT 0,
+  essay_score_pct REAL NOT NULL DEFAULT 0,
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  followup_questions INTEGER NOT NULL DEFAULT 0,
+  followup_essays INTEGER NOT NULL DEFAULT 0,
+  followup_pairings INTEGER NOT NULL DEFAULT 0,
+  timezone TEXT,
+  country TEXT,
+  region TEXT,
+  region_code TEXT,
+  city TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_test_attempts_received ON test_attempts(received_at);
+CREATE INDEX IF NOT EXISTS idx_test_attempts_cohort ON test_attempts(cohort, received_at);
+CREATE INDEX IF NOT EXISTS idx_test_attempts_installation ON test_attempts(installation_id, received_at);
