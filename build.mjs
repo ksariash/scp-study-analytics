@@ -37,6 +37,14 @@ function replaceRequired(source, marker, replacement, label) {
   return next;
 }
 
+function replacePatternRequired(source, pattern, replacement, label) {
+  if (!pattern.test(source)) throw new Error(`Missing build pattern: ${label}`);
+  pattern.lastIndex = 0;
+  const next = source.replace(pattern, replacement);
+  if (next === source) throw new Error(`Failed to replace build pattern: ${label}`);
+  return next;
+}
+
 feedbackBackend = replaceRequired(
   feedbackBackend,
   "if (url.pathname === '/api/health' && request.method === 'GET') return jsonResponse({ ok:true, service:'scp-study-analytics', version:29, feedback:true, push:true, sync:true });",
@@ -65,10 +73,6 @@ for (const [target, prefix] of targets) {
     if (!source.includes(registryMarker)) throw new Error("Analytics Zman registry marker missing from Worker source");
     source = source.replace(registryMarker, "const ANALYTICS_ZMAN_REGISTRY = " + JSON.stringify(analyticsZmanRegistry) + ";");
 
-    const legacyDateFilter = `  const from = text(url.searchParams.get('from'), 10);
-  const to = text(url.searchParams.get('to'), 10);
-  if (from && /^\\d{4}-\\d{2}-\\d{2}$/.test(from)) { clauses.push('received_at >= ?'); params.push(\`\${from}T00:00:00.000Z\`); }
-  if (to && /^\\d{4}-\\d{2}-\\d{2}$/.test(to)) { clauses.push('received_at < ?'); const d = new Date(\`\${to}T00:00:00.000Z\`); d.setUTCDate(d.getUTCDate()+1); params.push(d.toISOString()); }`;
     const localDateFilter = `  const fromTs = validIsoDate(url.searchParams.get('fromTs'));
   const toTs = validIsoDate(url.searchParams.get('toTs'));
   if (fromTs || toTs) {
@@ -80,28 +84,40 @@ for (const [target, prefix] of targets) {
     if (from && /^\\d{4}-\\d{2}-\\d{2}$/.test(from)) { clauses.push('received_at >= ?'); params.push(\`\${from}T00:00:00.000Z\`); }
     if (to && /^\\d{4}-\\d{2}-\\d{2}$/.test(to)) { clauses.push('received_at < ?'); const d = new Date(\`\${to}T00:00:00.000Z\`); d.setUTCDate(d.getUTCDate()+1); params.push(d.toISOString()); }
   }`;
-    source = replaceRequired(source, legacyDateFilter, localDateFilter, "dashboard local date boundaries");
+    source = replacePatternRequired(
+      source,
+      /  const from = text\(url\.searchParams\.get\('from'\), 10\);\n  const to = text\(url\.searchParams\.get\('to'\), 10\);\n  if \(from && \/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\/\.test\(from\)\) \{[^\n]*\}\n  if \(to && \/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\/\.test\(to\)\) \{[^\n]*\}/,
+      localDateFilter,
+      "dashboard local date boundaries"
+    );
 
     source = replaceRequired(source, "function localActivity(rows) {", "function localActivity(rows, overrideTimeZone = null) {", "activity timezone override signature");
     source = replaceRequired(source, "const parts = formatter(row.timezone).formatToParts(d);", "const parts = formatter(overrideTimeZone || row.timezone).formatToParts(d);", "activity timezone override");
 
-    const utcTimelineMarker = `  const timeline = stmt(env, \`SELECT substr(received_at,1,10) day, COUNT(*) submissions, COUNT(DISTINCT installation_id) learners,
-      SUM(CASE WHEN attempt_number=1 THEN 1 ELSE 0 END) first_attempts,
-      SUM(CASE WHEN attempt_number=1 AND result='correct' THEN 1 ELSE 0 END) first_correct    FROM events \${where} GROUP BY substr(received_at,1,10) ORDER BY day\`, params);`;
     const localTimelineQuery = `  const timeline = stmt(env, \`SELECT COALESCE(client_ts, received_at) ts, timezone, installation_id, attempt_number, result
     FROM events \${where} ORDER BY received_at\`, params);`;
-    source = replaceRequired(source, utcTimelineMarker, localTimelineQuery, "dashboard-local timeline query");
+    source = replacePatternRequired(
+      source,
+      /  const timeline = stmt\(env, `SELECT substr\(received_at,1,10\) day,[\s\S]*?ORDER BY day`, params\);/,
+      localTimelineQuery,
+      "dashboard-local timeline query"
+    );
 
-    const utcTimelineResponse = `    timeline: resultsOf(timelineRows).map(r => ({
-      day:r.day, submissions:Number(r.submissions)||0, learners:Number(r.learners)||0,
-      firstAttempts:Number(r.first_attempts)||0, firstCorrect:Number(r.first_correct)||0
-    })),`;
     const localTimelineResponse = `    timeline: localActivity(resultsOf(timelineRows), text(url.searchParams.get('tz'),80)).days,`;
-    source = replaceRequired(source, utcTimelineResponse, localTimelineResponse, "dashboard-local timeline response");
+    source = replacePatternRequired(
+      source,
+      /    timeline: resultsOf\(timelineRows\)\.map\(r => \(\{[\s\S]*?\}\)\),/,
+      localTimelineResponse,
+      "dashboard-local timeline response"
+    );
 
-    const explicitDatesMarker = `  const explicitDates = /^\\d{4}-\\d{2}-\\d{2}$/.test(String(url.searchParams.get('from') || '')) || /^\\d{4}-\\d{2}-\\d{2}$/.test(String(url.searchParams.get('to') || ''));`;
     const explicitDatesReplacement = `  const explicitDates = !!validIsoDate(url.searchParams.get('fromTs')) || !!validIsoDate(url.searchParams.get('toTs')) || /^\\d{4}-\\d{2}-\\d{2}$/.test(String(url.searchParams.get('from') || '')) || /^\\d{4}-\\d{2}-\\d{2}$/.test(String(url.searchParams.get('to') || ''));`;
-    source = replaceRequired(source, explicitDatesMarker, explicitDatesReplacement, "activity explicit date detection");
+    source = replacePatternRequired(
+      source,
+      /  const explicitDates = [^\n]+;/,
+      explicitDatesReplacement,
+      "activity explicit date detection"
+    );
 
     source += "\n" + testAttemptsBackend + "\nconst FEEDBACK_ADMIN_ACTIONS = " + feedbackAdminActions.trim() + ";\n" + feedbackBackend;
   }
