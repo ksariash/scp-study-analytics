@@ -1,14 +1,17 @@
-  const testAttemptSection = `
+function enhanceTestAttemptsHtml(html) {
+  const styles = `
 <style id="dashboardTestAttemptStyles">
 #test-attempts{scroll-margin-top:18px}.test-attempt-list{display:grid;gap:8px}.test-attempt-row{display:grid;grid-template-columns:minmax(130px,.8fr) minmax(180px,1fr) minmax(150px,.8fr);gap:12px;align-items:center;padding:10px 12px;border:1px solid #e1e8f2;border-radius:12px;background:#fff}.test-attempt-row>div{display:grid;gap:2px;min-width:0}.test-attempt-row strong,.test-attempt-row b{color:#244985;font-size:.78rem}.test-attempt-row span{color:#6d7c91;font-size:.63rem;line-height:1.35}@media(max-width:700px){.test-attempt-row{grid-template-columns:1fr 1fr}.test-attempt-row>div:first-child{grid-column:1/-1}.test-attempt-row>div:last-child{text-align:right}}
-</style>
+</style>`;
+
+  const section = `
 <section class="section" id="test-attempts" style="margin-top:14px">
   <div class="section-head"><div class="headcopy"><h2>Practice tests</h2><span>Completed, timed-out, and exited attempts reported by the Study app</span></div></div>
   <div id="testAttemptOverview" class="resource-usage-overview"><div class="resource-usage-card"><b>—</b><span>Attempts</span></div><div class="resource-usage-card"><b>—</b><span>Avg M/C score</span></div><div class="resource-usage-card"><b>—</b><span>Avg essay score</span></div></div>
   <div id="testAttemptList" class="test-attempt-list"><div class="empty">Loading practice tests…</div></div>
 </section>`;
 
-  const testAttemptBehavior = `
+  const behavior = `
 <script id="dashboardTestAttemptsScript">
 (() => {
   const host = document.getElementById('testAttemptList');
@@ -21,10 +24,6 @@
     return h ? h + 'h ' + m + 'm' : m + 'm';
   };
 
-  // Keep date inputs human-readable in the URL, but also send their exact UTC
-  // instants based on this dashboard browser's local timezone. That prevents a
-  // late-evening October 5 session from being bucketed as October 6 merely
-  // because the Worker stores UTC timestamps.
   if (typeof query === 'function' && !window.__scpDashboardLocalDateQuery) {
     const baseQuery = query;
     query = function(){
@@ -66,13 +65,34 @@
       host.innerHTML = '<div class="empty">Could not load practice tests: '+escTest(error.message)+'</div>';
     }
   }
+
   if (typeof renderAll !== 'undefined') {
-    const base = renderAll;
-    renderAll = data => { base(data); void loadTestAttempts(); };
+    const baseRenderAll = renderAll;
+    renderAll = data => { baseRenderAll(data); void loadTestAttempts(); };
   }
+
+  const addJumpLink = container => {
+    if (!container || container.querySelector('a[href="#test-attempts"]')) return;
+    const link = document.createElement('a');
+    link.href = '#test-attempts';
+    link.textContent = 'Tests';
+    container.append(link);
+  };
+  addJumpLink(document.querySelector('.section-jump-links'));
+  addJumpLink(document.getElementById('jumpMenu'));
+
   window.setTimeout(() => {
     if (typeof loadSummary === 'function') void loadSummary();
     else void loadTestAttempts();
   }, 0);
 })();
 </script>`;
+
+  const questionSection = '<section class="section" style="margin-top:14px"><div class="section-head"><div class="headcopy"><h2 id="questions-diagnostics">Question diagnostics</h2>';
+  let next = html.replace(questionSection, section + questionSection);
+  next = next.replace('</head>', styles + '</head>');
+  next = next.replace('</body>', behavior + '</body>');
+  return next;
+}
+
+export const DASHBOARD_HTML = enhanceTestAttemptsHtml(__DASHBOARD_WITH_NAV);
