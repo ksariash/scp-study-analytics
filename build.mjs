@@ -54,17 +54,17 @@ for (const [target, prefix] of targets) {
   }
   if (!chunks.length) throw new Error(`No source parts found for ${target}`);
   let source = chunks.join("");
+
   if (target === "src/index.js") {
     const marker = "export default {";
     const markerIndex = source.lastIndexOf(marker);
     if (markerIndex < 0) throw new Error("Unexpected Worker source format");
     source = source.slice(0, markerIndex) + "const __BASE_WORKER = {" + source.slice(markerIndex + marker.length);
+
     const registryMarker = "const ANALYTICS_ZMAN_REGISTRY = null;";
     if (!source.includes(registryMarker)) throw new Error("Analytics Zman registry marker missing from Worker source");
     source = source.replace(registryMarker, "const ANALYTICS_ZMAN_REGISTRY = " + JSON.stringify(analyticsZmanRegistry) + ";");
 
-    // Date filters use the dashboard viewer's actual local-midnight UTC instants when
-    // supplied. Legacy YYYY-MM-DD UTC boundaries remain as a compatibility fallback.
     const legacyDateFilter = `  const from = text(url.searchParams.get('from'), 10);
   const to = text(url.searchParams.get('to'), 10);
   if (from && /^\\d{4}-\\d{2}-\\d{2}$/.test(from)) { clauses.push('received_at >= ?'); params.push(\`\${from}T00:00:00.000Z\`); }
@@ -85,8 +85,6 @@ for (const [target, prefix] of targets) {
     source = replaceRequired(source, "function localActivity(rows) {", "function localActivity(rows, overrideTimeZone = null) {", "activity timezone override signature");
     source = replaceRequired(source, "const parts = formatter(row.timezone).formatToParts(d);", "const parts = formatter(overrideTimeZone || row.timezone).formatToParts(d);", "activity timezone override");
 
-    // Daily dashboard activity reflects the dashboard viewer's calendar day. Peak
-    // study times still call localActivity without an override and remain learner-local.
     const utcTimelineMarker = `  const timeline = stmt(env, \`SELECT substr(received_at,1,10) day, COUNT(*) submissions, COUNT(DISTINCT installation_id) learners,
       SUM(CASE WHEN attempt_number=1 THEN 1 ELSE 0 END) first_attempts,
       SUM(CASE WHEN attempt_number=1 AND result='correct' THEN 1 ELSE 0 END) first_correct    FROM events \${where} GROUP BY substr(received_at,1,10) ORDER BY day\`, params);`;
@@ -107,25 +105,19 @@ for (const [target, prefix] of targets) {
 
     source += "\n" + testAttemptsBackend + "\nconst FEEDBACK_ADMIN_ACTIONS = " + feedbackAdminActions.trim() + ";\n" + feedbackBackend;
   }
+
   if (target === "src/dashboard.js") {
     if (!source.startsWith("export const DASHBOARD_HTML = ")) throw new Error("Unexpected dashboard source format");
     source = source.replace("export const DASHBOARD_HTML = ", "const __DASHBOARD_BASE_HTML = ") + "\n" + dashboardEnhancement;
-
-    source = replaceRequired(source, "  const announcementBehavior = '';", dashboardTestAttempts + "\n\n  const announcementBehavior = '';", "practice-test dashboard definitions");
     source = replaceRequired(
       source,
-      "resourceSection + announcementSection + essaySection + feedbackSection + '<section class=\"section\" style=\"margin-top:14px\"><div class=\"section-head\"><div class=\"headcopy\"><h2>Question diagnostics</h2>'",
-      "resourceSection + announcementSection + essaySection + testAttemptSection + feedbackSection + '<section class=\"section\" style=\"margin-top:14px\"><div class=\"section-head\"><div class=\"headcopy\"><h2>Question diagnostics</h2>'",
-      "practice-test dashboard section"
+      "export const DASHBOARD_HTML = enhanceDashboardHtml(__DASHBOARD_BASE_HTML);",
+      "const __DASHBOARD_WITH_NAV = enhanceDashboardHtml(__DASHBOARD_BASE_HTML);",
+      "dashboard enhancement handoff"
     );
-    source = replaceRequired(
-      source,
-      "floatingNav + behavior + feedbackBehavior + resourceBehavior + essayBehavior + activityBehavior + referenceBehavior + announcementBehavior + '</body>'",
-      "floatingNav + behavior + feedbackBehavior + resourceBehavior + essayBehavior + activityBehavior + referenceBehavior + testAttemptBehavior + announcementBehavior + '</body>'",
-      "practice-test dashboard behavior"
-    );
-    source = replaceRequired(source, '["#essay-analytics", "Essays"],', '["#essay-analytics", "Essays"],\n    ["#test-attempts", "Tests"],', "practice-test jump link");
+    source += "\n" + dashboardTestAttempts;
   }
+
   if (target === "src/dashboard.js") {
     const probe = source.replaceAll("export const ", "const ");
     const rendered = Function(probe + "\nreturn DASHBOARD_HTML;")();
@@ -134,6 +126,7 @@ for (const [target, prefix] of targets) {
     }
     if (rendered.includes('id="announcements-admin"')) throw new Error("Announcements UI must not live in Analytics.");
   }
+
   await writeFile(target, source, "utf8");
   execFileSync(process.execPath, ["--check", target], { stdio: "inherit" });
 }
