@@ -55,13 +55,11 @@ for (const [target, prefix] of targets) {
     source = source.replace(registryMarker, "const ANALYTICS_ZMAN_REGISTRY = " + JSON.stringify(analyticsZmanRegistry) + ";");
 
     // Daily dashboard activity must reflect the learner's local calendar day, not
-    // the Worker's UTC receive date. Keep the source parts stable while the legacy
-    // split-source layout exists, but build the timeline from raw timestamp/timezone
-    // rows and reuse localActivity(), which already handles IANA timezones safely.
+    // the Worker's UTC receive date. The legacy index source is split mid-query,
+    // so chunks.join('') intentionally has no newline at that boundary.
     const utcTimelineMarker = `  const timeline = stmt(env, \`SELECT substr(received_at,1,10) day, COUNT(*) submissions, COUNT(DISTINCT installation_id) learners,
       SUM(CASE WHEN attempt_number=1 THEN 1 ELSE 0 END) first_attempts,
-      SUM(CASE WHEN attempt_number=1 AND result='correct' THEN 1 ELSE 0 END) first_correct
-    FROM events \${where} GROUP BY substr(received_at,1,10) ORDER BY day\`, params);`;
+      SUM(CASE WHEN attempt_number=1 AND result='correct' THEN 1 ELSE 0 END) first_correct    FROM events \${where} GROUP BY substr(received_at,1,10) ORDER BY day\`, params);`;
     const localTimelineQuery = `  const timeline = stmt(env, \`SELECT COALESCE(client_ts, received_at) ts, timezone, installation_id, attempt_number, result
     FROM events \${where} ORDER BY received_at\`, params);`;
     source = replaceRequired(source, utcTimelineMarker, localTimelineQuery, "learner-local timeline query");
